@@ -1,0 +1,187 @@
+{
+  "id": "0638c35e-8a9f-11ef-9a4e-0242ac110002",
+  "name": "240",
+  "ip": "172.17.0.1",
+  "agvMapId": "naim_h",
+  "navigationType": "LASER",
+  "connectedTime": 1729133189763,
+  "mapStatus": 1,
+  "recordStatus": 1,
+  "workStatus": 1,
+  "abnormalStatus": 1,
+  "connectStatus": 1,
+  "manualStatus": 1,
+  "controlMode": 1,
+  "vehicleInfo": {
+  "agv": {
+  "agv_id": "1",
+  "agv_name": "Trans200_QR",
+  "agv_version": "V2.4"
+  },
+  "device": {
+  "motor": "Kinco_FD123_48V_400W",
+  "imu": "LMPS_NAV2",
+  "pc": "Cobwin_i5_8g_128ssd"
+  },
+  "shape": {
+  "length": 800,
+  "width": 600,
+  "radius": null
+  },
+  "network": {
+  "net_protocol_version": "v1.1.2",
+  "net_ip": "192.168.1.116",
+ "net_mac": "00:1c:42:94:fe:b4",
+ "net_wifi_ssid": "Youibot_Test",
+ "net_wifi_rssi": "Youibot_Test"
+ }
+ },
+ "vehicleDeviceInfoList": [
+ {
+ "id": "1",
+ "name": "Capture_Camera",
+ "type": "WorkCamera",
+ "model": "Hikvision_DS_2ZCN3008",
+ "property": {
+ "password": "youibot2019",
+ "port": 8000,
+ "serial": "D24648831",
+ "ip": "192.168.103.23",
+ "userid": "admin"
+ }
+ },
+ {
+ "id": "2",
+ "name": "Front_Monitor_Camera",
+ "type": "MonitorCamera",
+ "model": "Hikvision",
+ "property": {
+ "serial": "D24648831",
+ "ip": "192.168.103.24",
+ "channel": 1
+ }
+ },
+ {
+ "id": "3",
+ "name": null,
+ "type": "ThermalImager",
+ "model": "Hikvision-DS-2TA03-15SVI",
+ "property": {
+ "serial": "C95948947",
+ "ip": "192.168.103.22"
+ }
+ },
+ {
+ "id": "4",
+ "name": null,
+ "type": "NoiseSensor",
+ "model": "****",
+ "property": {
+ "ip": ""
+ }
+ },
+ {
+ "id": "5",
+ "name": "Back_Monitor_Camera",
+ "type": "MonitorCamera",
+ "model": "Hikvision",
+ "property": {
+ "serial": "D24648831",
+ "ip": "192.168.103.24",
+ "channel": 2
+ }
+ }
+ ],
+ "missionWork": null,
+ "defaultVehicleStatus": {
+ "runtime": {
+ "agv_status": null,
+ "agv_mode": 3,
+ "docking_status": 5,
+ "follow_status": 0,
+ "time": null,
+ "total_time": 0,
+ "odom": 0,
+ "controller_temp": null,
+ "motor_temp": null
+ },
+ "map": {
+  "current_map_id": "naim_h",
+ "current_feature_id": null,
+ "current_map_type": 1,
+ "scan_status": 3,
+ "scan_feature_status": 0,
+ "scan_update_status": 3
+ },
+ "position": {
+ "pos_x": 23.412845499959918,
+ "pos_y": 17.244799282938327,
+ "pos_angle": 1.7667662522783527,
+ "pos_confidence": 3,
+ "pos_current_station": "",
+ "pos_islocated": 1,
+ "t": 0,
+ "segment_id": "-1",
+ "covariance": [
+ 0,
+ 0,
+ 0
+ ],
+ "update_time_millis": 1729155469128
+ },
+ "speed": {
+ "speed_vx": 0,
+ "speed_vy": 0,
+ "speed_w": 0,
+ "speed_r_vx": 0,
+ "speed_r_vy": 0,
+ "speed_r_w": 0
+ },
+ "battery": {
+ "battery_status": null,
+ "battery_value": 66,
+ "battery_temp": null,
+ "battery_charge": 0,
+ "battery_discharge": 1.5,
+ "battery_voltage": 52.478,
+ "battery_fullcapacity": null,
+ "battery_leftcapacity": null
+ },
+ "emec": {
+ "emc_status": 0,
+ "emc_reason": null,
+ "emc_jam_start_time": null
+ },
+ "fallPrevent": null,
+ "lift": {
+ "status_word": 0,
+ "position": 0,
+ "origin_point": 0,
+ "limit": 0,
+ "goal_reached": 0,
+ "emc_stop": 0,
+ "controller_error": 0
+ },
+ "deviceStatus": null,
+ "motorStatus": null,
+ "agvStatus": {
+ "resetting_status": false,
+ "unlock_brake_status": false
+ },
+ "status": {
+ "robot_status": "Standby",
+ "err_code": null
+ },
+ "qrcode": {
+ "is_qrcode": false
+ },
+ "goods": {
+ "is_goods": false
+ }
+ },
+ "errorMessage": null,
+ "missionWorkChainId": null,
+ "paths": [],
+ "modeControlSource": 1,
+ "errorMsgShow": ""
+}
