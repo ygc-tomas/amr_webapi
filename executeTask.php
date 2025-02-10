@@ -7,6 +7,7 @@ define('SERVER_URL', 'https://3aca9239-01d0-43b9-80ca-97bb21637841.mock.pstmn.io
 function getVehicleStatus() {
     // Uncomment the following block to use the cURL method (make sure to enable curl in php.ini)
     /*
+    // Use "cURL function" commented below when trouble "file_get_contents function"
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
