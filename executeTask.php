@@ -132,8 +132,8 @@ function getCallbackResponse($missionId) {
 
 // Function to get the database connection settings
 function getDBConnection() {
-    try {
-        $serverName = "DESKTOP-DQGJI2I";
+   try {
+        $serverName = "D1ZP3K54";
         $database   = "amr_task_db";
         
         // Using Windows authentication (set username and password to null)
@@ -142,19 +142,23 @@ function getDBConnection() {
             null,  // For Windows authentication, use null
             null
         );
-        
+    /*
+        $serverName = "D1ZP3K54";  // 1433以外のポートを使っている場合
+        $database = "amr_task_db";
+
+        $conn = new PDO(
+            "odbc:Driver={ODBC Driver 18 for SQL Server};Server=$serverName;Database=$database;TrustServerCertificate=Yes",
+            null,
+            null
+        );
+
+      */  
         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         return $conn;
-    } catch(PDOException $e) {
-        throw new Exception("Database error: Unable to connect to the DB. Please verify that Windows authentication is available. " . $e->getMessage());
-    }
-}
 
-try {
-    $conn = getDBConnection();
-    echo "Connected successfully!";
-} catch (Exception $e) {
-    echo $e->getMessage();
+   } catch(PDOException $e) {
+        throw new Exception("Database error: Unable to connect to the DB. Please verify that Windows authentication is available. " . $e->getMessage());
+   }
 }
 
 // Function to record the task execution status in the DB
