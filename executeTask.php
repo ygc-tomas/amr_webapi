@@ -144,7 +144,7 @@ function getDBConnection() {
             null
         );
     /*
-        $serverName = "D1ZP3K54";  // 1433以外のポートを使っている場合
+        $serverName = "D1ZP3K54";  
         $database = "amr_task_db";
 
         $conn = new PDO(
