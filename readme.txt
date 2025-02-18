@@ -29,6 +29,8 @@ ServerName:localhost (or use "localhost¥MSSQLSERVER01")
 Authentication:SQL server Authentication
 User:test
 Password:Koito2025
+* Ensure to check to enable "trust server certificate".
+(Encryption:Trust server certificate)
 
 ## Database Creation Command
 ```sql
