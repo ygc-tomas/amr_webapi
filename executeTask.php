@@ -1,5 +1,6 @@
 <?php
 
+<<<<<<< Updated upstream
 // Define the base URL for the mock server (please enter the production server IP here)
 define('SERVER_URL', 'https://3aca9239-01d0-43b9-80ca-97bb21637841.mock.pstmn.io');
 
@@ -40,6 +41,72 @@ function getVehicleStatus() {
             "method"  => "GET",
             "header"  => "Content-Type: application/json\r\n"
         ]
+=======
+// Define the base URL for the YOUICOMPASS installed server
+// Develop Env（Mock Server）
+//define('SERVER_URL', 'https://3aca9239-01d0-43b9-80ca-97bb21637841.mock.pstmn.io');
+// Production Env
+define('SERVER_URL', 'http://192.168.51.51:8080');
+
+// Function to get the database connection settings
+function getDBConnection() {
+    try {
+         // Define DB server name.
+         // Develop Env
+         // $serverName = "DESKTOP-DQGJI2I";
+         // Production Env
+         $serverName = "D1ZP3K54\\MSSQLSERVER01";
+         $database   = "amr_task_db";
+         $username   = "test";         // SQL Server 認証ユーザー
+         $password   = "Koito2025";     // パスワード
+ 
+         $conn = new PDO(
+             "sqlsrv:Server=$serverName;Database=$database;TrustServerCertificate=Yes",
+             $username,
+             $password
+         );
+         $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+         return $conn;
+    } catch(PDOException $e) {
+         throw new Exception("Database error: Unable to connect to the DB. " . $e->getMessage());
+    }
+}
+ 
+// Function to call the external web API "AMR Real-time Inquiry (/api/v3/vehicles)"
+function getVehicleStatus() {
+     $url = SERVER_URL . "/api/v3/vehicles";
+     $response = file_get_contents($url);
+     
+     if (empty($response)) {
+         error_log("Response is empty.");
+         return null;
+     }
+     
+     $data = json_decode($response, true);
+     if (json_last_error() !== JSON_ERROR_NONE) {
+         error_log("JSON Decode Error: " . json_last_error_msg());
+         return null;
+     }
+     
+     return isset($data['workStatus']) ? $data['workStatus'] : null;
+}
+ 
+// Function to call the external web API "Request Parameter Sending (MissionWorks)"
+// 仕様に合わせ、missionId、missionCode、runtimeParam、callbackUrl を引数として受け取る
+function sendMissionWorksRequest($missionId, $missionCode, $runtimeParam, $callbackUrl) {
+    // Define YOUICOMPASS server URL.
+    // Develop Env
+    //$apiUrl = 'http://192.168.56.1/api/v3/missionWorks';    
+    // Production Env
+    $apiUrl = SERVER_URL . '/api/v3/missionWorks';
+
+    // リクエストペイロードを作成
+    $payload = [
+        "missionId"    => $missionId,
+        "missionCode"  => $missionCode,
+        "callbackUrl"  => $callbackUrl,
+        "runtimeParam" => $runtimeParam
+>>>>>>> Stashed changes
     ];
     
     $context = stream_context_create($options);
@@ -97,12 +164,22 @@ function sendMissionWorksRequest($params) {
 
 // Function to retrieve the response from the callback URL of the external web API
 function getCallbackResponse($missionId) {
+<<<<<<< Updated upstream
     $callbackUrl = SERVER_URL . '/api/callback';
 
     // Callback request parameters
     $params = [
         'missionId' => $missionId,
     ];
+=======
+    // missionIDを引数として受け取りGETコールバックURLを作成
+    // Develop Env
+    //$url = 'http://192.168.56.1:8080/api/callback/callback.php?missionId=' . urlencode($missionId);    
+    // Production Env
+    $url = 'http://192.168.51.41:8080/api/callback/callback.php?missionId=' . urlencode($missionId);
+    
+    $response = file_get_contents($url);
+>>>>>>> Stashed changes
     
     // Settings for the POST request
     $options = [
@@ -250,8 +327,19 @@ function executeWebAPITask() {
         echo "No pending tasks found.\n";
         return;
     }
+<<<<<<< Updated upstream
 
     // Get the timestamp at the start of the task
+=======
+ 
+    $missionId = $pendingTask;
+    // コールバックURLを固定で指定する
+    // Develop Env
+    // $callbackUrl = 'http://192.168.56.1:8080/api/callback/callback.php';  
+    // Production Env
+    $callbackUrl = 'http://192.168.51.41:8080/api/callback/callback.php';
+
+>>>>>>> Stashed changes
     $startTime = date('Y-m-d H:i:s');
 
     // Record the task start in the log
@@ -259,9 +347,18 @@ function executeWebAPITask() {
        'start_time' => $startTime,
        'end_time'   => null,
     ]);
+<<<<<<< Updated upstream
     
     // Set the maximum number of attempts (to avoid exceeding the AMR inquiry limit)
     $maxAttempts = 3;
+=======
+ 
+    // 新しいタスク開始時に前回のレスポンスをクリアする（必要に応じて）
+    $clearResponseUrl = $callbackUrl . '?missionId=' . urlencode($missionId) . '&clear=1';
+    file_get_contents($clearResponseUrl);
+ 
+    $maxAttempts = 1;
+>>>>>>> Stashed changes
     $attempts = 0;
 
     // Loop every 10 seconds until an available AMR is found
