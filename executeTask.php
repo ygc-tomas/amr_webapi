@@ -227,34 +227,39 @@ while ($attempts < $maxAttempts && !$taskCompleted) {
     sleep(3); // 3秒待機
 
     // コールバックレスポンスを取得
-    $callbackResponse = getCallbackResponse($missionId);
-    if ($callbackResponse !== null) {
-        // "Success" の場合はタスク完了とする
-        if (strcasecmp($callbackResponse, 'Success') === 0) {
-            updateTaskStatus($missionId, 'COMPLETED');
-            logTaskExecution($missionId, 'COMPLETED', 'Task completed', [
-                'start_time' => $startTime,
-                'end_time'   => date('Y-m-d H:i:s'),
-            ]);
-            echo "Task completed\n";
-            $taskCompleted = true;
-            break;
-        } else {
-            // Success以外の場合はそのステータスを表示・ログ出力する
-            echo "Callback Status: " . $callbackResponse . " - Waiting for Success...\n";
-            logTaskExecution($missionId, 'WAITING', "Current callback status: " . $callbackResponse, [
-                'start_time' => $startTime,
-                'end_time'   => null,
-            ]);
-        }
+    // タスクの進捗をチェックするループ内の一部
+// タスクの進捗をチェックするループ内の一部
+$callbackResponse = getCallbackResponse($missionId);
+if ($callbackResponse !== null) {
+    if (strcasecmp($callbackResponse, 'Success') === 0) {
+        // Success が返ってきた場合、"Callback Status: Success" を出力してからタスク完了処理を行う
+        echo "Callback Status: " . $callbackResponse . "<br>\n";
+        updateTaskStatus($missionId, 'COMPLETED');
+        logTaskExecution($missionId, 'COMPLETED', 'Task completed', [
+            'start_time' => $startTime,
+            'end_time'   => date('Y-m-d H:i:s'),
+        ]);
+        echo "Task completed<br>\n";
+        $taskCompleted = true;
+        break;
     } else {
-        // レスポンスが null の場合
-        echo "Attempt $attempts - No callback response received. Waiting...\n";
-        logTaskExecution($missionId, 'WAITING', "No callback response received. Attempt: $attempts", [
+        // Success 以外の場合はその状態を表示する
+        echo "Callback Status: " . $callbackResponse . " - Waiting for Success...<br>\n";
+        logTaskExecution($missionId, 'WAITING', "Waiting for Success. Current Status: " . $callbackResponse, [
             'start_time' => $startTime,
             'end_time'   => null,
         ]);
     }
+} else {
+    // レスポンスが null の場合
+    echo "Attempt $attempts - No callback response received. Waiting...<br>\n";
+    logTaskExecution($missionId, 'WAITING', "No callback response received. Attempt: $attempts", [
+        'start_time' => $startTime,
+        'end_time'   => null,
+    ]);
+}
+
+
     
     // AMRのステータスも確認（必要に応じて）
     $vehicleStatus = getVehicleStatus();
