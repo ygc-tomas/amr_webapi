@@ -6,6 +6,10 @@ $responseFile = 'callback_response.json';
 
 // AMRから新しいレスポンスがPOSTされた場合
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // 前回のレスポンスをクリア
+        if (file_exists($responseFile)) {
+            unlink($responseFile);
+        }
     $rawData = file_get_contents('php://input');
     $data = json_decode($rawData, true);
 

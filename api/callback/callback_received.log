@@ -384,3 +384,6 @@
 2025-02-28 09:28:03 - New Response: {"Missionworkid":"932e542a-430d-4eb1-95fe-cf4a0677eb14","AgvCode":"","Status":"Success","ErrorCode":"","ErrorMessage":"","EndPoint":"1001","timestamp":1740709683}
 2025-02-28 09:44:24 - New Response: {"Missionworkid":"932e542a-430d-4eb1-95fe-cf4a0677eb14","AgvCode":"","Status":"Wait","ErrorCode":"","ErrorMessage":"","EndPoint":"1001","timestamp":1740710664}
 2025-02-28 09:44:26 - New Response: {"Missionworkid":"932e542a-430d-4eb1-95fe-cf4a0677eb14","AgvCode":"","Status":"Success","ErrorCode":"","ErrorMessage":"","EndPoint":"1001","timestamp":1740710666}
+2025-02-28 09:55:40 - New Response: {"Missionworkid":"932e542a-430d-4eb1-95fe-cf4a0677eb14","AgvCode":"","Status":"Wait","ErrorCode":"","ErrorMessage":"","EndPoint":"1001","timestamp":1740711340}
+2025-02-28 09:55:42 - New Response: {"Missionworkid":"932e542a-430d-4eb1-95fe-cf4a0677eb14","AgvCode":"","Status":"Wait","ErrorCode":"","ErrorMessage":"","EndPoint":"1001","timestamp":1740711342}
+2025-02-28 09:55:44 - New Response: {"Missionworkid":"932e542a-430d-4eb1-95fe-cf4a0677eb14","AgvCode":"","Status":"Success","ErrorCode":"","ErrorMessage":"","EndPoint":"1001","timestamp":1740711344}
