@@ -1,18 +1,20 @@
 <?php
 set_time_limit(0); // タイムアウトなし
 
-// Define the base URL for the server
-// 開発環境（Mock Server）
-define('SERVER_URL', 'https://3aca9239-01d0-43b9-80ca-97bb21637841.mock.pstmn.io');
-// ※本番環境の場合は、適切なURLに変更してください。
+// Define the base URL for the YOUICOMPASS installed server
+// Develop Env（Mock Server）
+//define('SERVER_URL', 'https://3aca9239-01d0-43b9-80ca-97bb21637841.mock.pstmn.io');
+// Production Env
+define('SERVER_URL', 'http://192.168.51.51:8080');
 
 // Function to get the database connection settings
 function getDBConnection() {
     try {
-         // develop Env
-         $serverName = "DESKTOP-DQGJI2I";
+         // Define DB server name.
+         // Develop Env
+         // $serverName = "DESKTOP-DQGJI2I";
          // Production Env
-         // $serverName = "D1ZP3K54\\MSSQLSERVER01";
+         $serverName = "D1ZP3K54\\MSSQLSERVER01";
          $database   = "amr_task_db";
          $username   = "test";         // SQL Server 認証ユーザー
          $password   = "Koito2025";     // パスワード
@@ -51,8 +53,12 @@ function getVehicleStatus() {
 // Function to call the external web API "Request Parameter Sending (MissionWorks)"
 // 仕様に合わせ、missionId、missionCode、runtimeParam、callbackUrl を引数として受け取る
 function sendMissionWorksRequest($missionId, $missionCode, $runtimeParam, $callbackUrl) {
+    // Define YOUICOMPASS server URL.
+    // Develop Env
+    //$apiUrl = 'http://192.168.56.1/api/v3/missionWorks';    
+    // Production Env
     $apiUrl = SERVER_URL . '/api/v3/missionWorks';
-    
+
     // リクエストペイロードを作成
     $payload = [
         "missionId"    => $missionId,
@@ -97,8 +103,12 @@ function sendMissionWorksRequest($missionId, $missionCode, $runtimeParam, $callb
 // Function to retrieve the asynchronous callback response from the external web API
 // ※仕様では GET リクエストで "missionId" パラメータを利用
 function getCallbackResponse($missionId) {
-    // 仕様では、callback.php で GET リクエストにより {"Status": ...} が返る
-    $url = 'http://192.168.56.1:8080/api/callback/callback.php?missionId=' . urlencode($missionId);
+    // missionIDを引数として受け取りGETコールバックURLを作成
+    // Develop Env
+    //$url = 'http://192.168.56.1:8080/api/callback/callback.php?missionId=' . urlencode($missionId);    
+    // Production Env
+    $url = 'http://192.168.51.41:8080/api/callback/callback.php?missionId=' . urlencode($missionId);
+    
     $response = file_get_contents($url);
     
     if ($response === false) {
@@ -200,8 +210,12 @@ function executeWebAPITask() {
     }
  
     $missionId = $pendingTask;
-    // Develop EnvのcallbackUrl
-    $callbackUrl = 'http://192.168.56.1:8080/api/callback/callback.php';
+    // コールバックURLを固定で指定する
+    // Develop Env
+    // $callbackUrl = 'http://192.168.56.1:8080/api/callback/callback.php';  
+    // Production Env
+    $callbackUrl = 'http://192.168.51.41:8080/api/callback/callback.php';
+
     $startTime = date('Y-m-d H:i:s');
     logTaskExecution($missionId, 'STARTED', 'Task execution started', [
         'start_time' => $startTime,
@@ -212,7 +226,7 @@ function executeWebAPITask() {
     $clearResponseUrl = $callbackUrl . '?missionId=' . urlencode($missionId) . '&clear=1';
     file_get_contents($clearResponseUrl);
  
-    $maxAttempts = 10;
+    $maxAttempts = 1;
     $attempts = 0;
     $taskCompleted = false;
  
@@ -220,7 +234,7 @@ function executeWebAPITask() {
         $attempts++;
         
         // コールバック確認前に待機
-        sleep(3); // 3秒待機
+        sleep(10); // 10秒待機
         
         // コールバックレスポンスを取得
         $callbackResponse = getCallbackResponse($missionId);
