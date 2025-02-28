@@ -54,10 +54,8 @@ function getVehicleStatus() {
 // 仕様に合わせ、missionId、missionCode、runtimeParam、callbackUrl を引数として受け取る
 function sendMissionWorksRequest($missionId, $missionCode, $runtimeParam, $callbackUrl) {
     // Define YOUICOMPASS server URL.
-    // Develop Env
-    $apiUrl = 'http://192.168.56.1/api/v3/missionWorks';    
-    // Production Env
-    //$apiUrl = SERVER_URL . '/api/v3/missionWorks';
+    // Develop Env / Production Env
+    $apiUrl = SERVER_URL . '/api/v3/missionWorks';
 
     // リクエストペイロードを作成
     $payload = [
