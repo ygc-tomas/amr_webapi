@@ -10,11 +10,10 @@ define('SERVER_URL', 'https://3aca9239-01d0-43b9-80ca-97bb21637841.mock.pstmn.io
 // Function to get the database connection settings
 function getDBConnection() {
     try {
-         // Define DB server name.
          // Develop Env
          $serverName = "DESKTOP-DQGJI2I";
          // Production Env
-         //$serverName = "D1ZP3K54\\MSSQLSERVER01";
+         // $serverName = "D1ZP3K54\\MSSQLSERVER01";
          $database   = "amr_task_db";
          $username   = "test";         // SQL Server 認証ユーザー
          $password   = "Koito2025";     // パスワード
@@ -32,6 +31,7 @@ function getDBConnection() {
 }
  
 // Function to call the external web API "AMR Real-time Inquiry (/api/v3/vehicles)"
+// 修正: workStatus と abnormalStatus の両方を返す
 function getVehicleStatus() {
      $url = SERVER_URL . "/api/v3/vehicles";
      $response = file_get_contents($url);
@@ -47,13 +47,15 @@ function getVehicleStatus() {
          return null;
      }
      
-     return isset($data['workStatus']) ? $data['workStatus'] : null;
+     return [
+         'workStatus'    => $data['workStatus'] ?? null,
+         'abnormalStatus'=> $data['abnormalStatus'] ?? null
+     ];
 }
  
 // Function to call the external web API "Request Parameter Sending (MissionWorks)"
 // 仕様に合わせ、missionId、missionCode、runtimeParam、callbackUrl を引数として受け取る
 function sendMissionWorksRequest($missionId, $missionCode, $runtimeParam, $callbackUrl) {
-    // Define YOUICOMPASS server URL.
     $apiUrl = SERVER_URL . '/api/v3/missionWorks';
  
     // リクエストペイロードを作成
@@ -80,7 +82,6 @@ function sendMissionWorksRequest($missionId, $missionCode, $runtimeParam, $callb
     $parts = explode(' ', trim($rawStatusLine));
     $httpCode = isset($parts[1]) ? $parts[1] : null;
     
-    // Check HTTP status code: accept both 200 and 201 as successful responses
     if ($missionResponse === false || ($httpCode !== '200' && $httpCode !== '201')) {
         error_log("Error fetching data: HTTP Status Code " . $httpCode);
         error_log("Response: " . $missionResponse);
@@ -98,9 +99,8 @@ function sendMissionWorksRequest($missionId, $missionCode, $runtimeParam, $callb
 }
  
 // Function to retrieve the asynchronous callback response from the external web API
-// ※仕様では GET リクエストで "missionId" パラメータを利用
+// 仕様: GET リクエストで "missionId" パラメータを利用
 function getCallbackResponse($missionId) {
-    // missionIDを引数として受け取りGETコールバックURLを作成
     // Develop Env
     $url = 'http://192.168.56.1:8080/api/callback/callback.php?missionId=' . urlencode($missionId);
     // Production Env
@@ -267,10 +267,10 @@ function executeWebAPITask() {
     while ($attempts < $maxAttempts && !$taskCompleted) {
         $attempts++;
  
-        // コールバック確認前に待機
-        sleep(10); // 10秒待機
+        // タスク制御前に待機（ここでは10秒）
+        sleep(10);
  
-        // コールバックレスポンスを取得
+        // まず、コールバックレスポンスを取得
         $callbackResponse = getCallbackResponse($missionId);
         if ($callbackResponse !== null) {
             if (strcasecmp($callbackResponse, 'Success') === 0) {
@@ -298,9 +298,9 @@ function executeWebAPITask() {
             ]);
         }
  
-        // AMRのステータスを確認
-        $vehicleStatus = getVehicleStatus();
-        if ($vehicleStatus === null) {
+        // AMRの実行状況照会を実施
+        $vehicleData = getVehicleStatus();
+        if ($vehicleData === null) {
             $errorMsg = "Unable to obtain a valid response from the AMR real-time inquiry.";
             logTaskExecution($missionId, 'ERROR', $errorMsg, [
                 'error_code' => 1001,
@@ -311,38 +311,44 @@ function executeWebAPITask() {
             break;
         }
  
-        // 修正: AMRの状態が利用可能(1) または 充電中(3) の場合にタスクを実行
-        if ($vehicleStatus == 1 || $vehicleStatus == 3) {
-            // AMRが利用可能または充電中の場合、MissionWorks API を呼び出す
-            $missionCode  = ""; // 必要に応じて設定
-            $runtimeParam = ["marker1" => ""]; // 例: デフォルト値。必要なら変更
-            $missionWorks = sendMissionWorksRequest($missionId, $missionCode, $runtimeParam, $callbackUrl);
-            if ($missionWorks === null) {
-                $errorMsg = "Invalid response from MissionWorks.";
-                logTaskExecution($missionId, 'ERROR', $errorMsg, [
-                    'error_code' => 1002,
-                    'start_time' => $startTime,
-                    'end_time'   => date('Y-m-d H:i:s'),
-                ]);
-                echo "Error: " . $errorMsg . "<br>\n";
-                break;
-            }
+        $workStatus    = $vehicleData['workStatus'];
+        $abnormalStatus = $vehicleData['abnormalStatus'];
  
-            // タスクの進捗を記録
-            logTaskExecution($missionId, 'PROCESSING', 'Task in progress', [
-                'start_time' => $startTime,
-                'end_time'   => null,
-            ]);
-            echo "Task in progress: status = Processing<br>\n";
-        } else {
-            // AMR が待機中の場合
-            logTaskExecution($missionId, 'WAIT', 'AMR waiting', [
-                'start_time' => $startTime,
-                'end_time'   => null,
-            ]);
-            echo "AMR is waiting...<br>\n";
-            sleep(10); // 10秒待機
+        // ここで、AMR の状態に基づきタスク制御APIを呼び出す
+        // 例:
+        // - 正常状態 (workStatus == 1 && abnormalStatus == 1) → タスクを続行 (continueTask)
+        // - 充電中 (workStatus == 3) または 異常がある (abnormalStatus != 1) → タスクを一時停止 (pauseTask)
+        if ($workStatus == 1 && $abnormalStatus == 1) {
+            // 正常状態の場合、タスクを続行
+            $continueResponse = continueTask($missionId);
+            echo "Called continueTask API, response: " . $continueResponse . "<br>\n";
+        } elseif ($workStatus == 3 || $abnormalStatus != 1) {
+            // 充電中または異常の場合、タスクを一時停止
+            $pauseResponse = pauseTask($missionId);
+            echo "Called pauseTask API, response: " . $pauseResponse . "<br>\n";
         }
+ 
+        // MissionWorks API の呼び出し（タスク実行リクエスト）
+        $missionCode  = ""; // 必要に応じて設定
+        $runtimeParam = ["marker1" => ""]; // 例: デフォルト値
+        $missionWorks = sendMissionWorksRequest($missionId, $missionCode, $runtimeParam, $callbackUrl);
+        if ($missionWorks === null) {
+            $errorMsg = "Invalid response from MissionWorks.";
+            logTaskExecution($missionId, 'ERROR', $errorMsg, [
+                'error_code' => 1002,
+                'start_time' => $startTime,
+                'end_time'   => date('Y-m-d H:i:s'),
+            ]);
+            echo "Error: " . $errorMsg . "<br>\n";
+            break;
+        }
+ 
+        // タスクの進捗を記録
+        logTaskExecution($missionId, 'PROCESSING', 'Task in progress', [
+            'start_time' => $startTime,
+            'end_time'   => null,
+        ]);
+        echo "Task in progress: status = Processing<br>\n";
     }
  
     if (!$taskCompleted && $attempts >= $maxAttempts) {
