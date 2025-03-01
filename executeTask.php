@@ -54,9 +54,8 @@ function getVehicleStatus() {
 // 仕様に合わせ、missionId、missionCode、runtimeParam、callbackUrl を引数として受け取る
 function sendMissionWorksRequest($missionId, $missionCode, $runtimeParam, $callbackUrl) {
     // Define YOUICOMPASS server URL.
-    // Develop Env / Production Env
     $apiUrl = SERVER_URL . '/api/v3/missionWorks';
-
+ 
     // リクエストペイロードを作成
     $payload = [
         "missionId"    => $missionId,
@@ -103,9 +102,9 @@ function sendMissionWorksRequest($missionId, $missionCode, $runtimeParam, $callb
 function getCallbackResponse($missionId) {
     // missionIDを引数として受け取りGETコールバックURLを作成
     // Develop Env
-    $url = 'http://192.168.56.1:8080/api/callback/callback.php?missionId=' . urlencode($missionId);    
+    $url = 'http://192.168.56.1:8080/api/callback/callback.php?missionId=' . urlencode($missionId);
     // Production Env
-    //$url = 'http://192.168.51.41:8080/api/callback/callback.php?missionId=' . urlencode($missionId);
+    // $url = 'http://192.168.51.41:8080/api/callback/callback.php?missionId=' . urlencode($missionId);
     
     $response = file_get_contents($url);
     
@@ -199,6 +198,43 @@ function updateTaskStatus($missionId, $status) {
     }
 }
  
+// --- 新規追加: タスク制御API 呼び出し関数 ---
+// タスクを続行する
+function continueTask($missionId) {
+    $apiUrl = SERVER_URL . "/api/v3/missionWorks/" . urlencode($missionId) . "/controls/continue";
+    $context = stream_context_create([
+        'http' => [
+            'method' => 'POST',
+            'header' => 'Content-Type: application/json'
+        ]
+    ]);
+    return file_get_contents($apiUrl, false, $context);
+}
+ 
+// タスクを再開する
+function resumeTask($missionId) {
+    $apiUrl = SERVER_URL . "/api/v3/missionWorks/" . urlencode($missionId) . "/controls/resume";
+    $context = stream_context_create([
+        'http' => [
+            'method' => 'POST',
+            'header' => 'Content-Type: application/json'
+        ]
+    ]);
+    return file_get_contents($apiUrl, false, $context);
+}
+ 
+// タスクを一時停止する
+function pauseTask($missionId) {
+    $apiUrl = SERVER_URL . "/api/v3/missionWorks/" . urlencode($missionId) . "/controls/pause";
+    $context = stream_context_create([
+        'http' => [
+            'method' => 'POST',
+            'header' => 'Content-Type: application/json'
+        ]
+    ]);
+    return file_get_contents($apiUrl, false, $context);
+}
+ 
 // Function to execute the Web API task
 function executeWebAPITask() {
     $pendingTask = getPendingTask();
@@ -210,10 +246,10 @@ function executeWebAPITask() {
     $missionId = $pendingTask;
     // コールバックURLを固定で指定する
     // Develop Env
-     $callbackUrl = 'http://192.168.56.1:8080/api/callback/callback.php';  
+    $callbackUrl = 'http://192.168.56.1:8080/api/callback/callback.php';
     // Production Env
     // $callbackUrl = 'http://192.168.51.41:8080/api/callback/callback.php';
-
+ 
     $startTime = date('Y-m-d H:i:s');
     logTaskExecution($missionId, 'STARTED', 'Task execution started', [
         'start_time' => $startTime,
@@ -224,21 +260,20 @@ function executeWebAPITask() {
     $clearResponseUrl = $callbackUrl . '?missionId=' . urlencode($missionId) . '&clear=1';
     file_get_contents($clearResponseUrl);
  
-    $maxAttempts = 1;
+    $maxAttempts = 10;
     $attempts = 0;
     $taskCompleted = false;
  
     while ($attempts < $maxAttempts && !$taskCompleted) {
         $attempts++;
-        
+ 
         // コールバック確認前に待機
         sleep(10); // 10秒待機
-        
+ 
         // コールバックレスポンスを取得
         $callbackResponse = getCallbackResponse($missionId);
         if ($callbackResponse !== null) {
             if (strcasecmp($callbackResponse, 'Success') === 0) {
-                // Success が返ってきた場合
                 echo "Callback Status: " . $callbackResponse . "<br>\n";
                 updateTaskStatus($missionId, 'COMPLETED');
                 logTaskExecution($missionId, 'COMPLETED', 'Task completed', [
@@ -276,9 +311,9 @@ function executeWebAPITask() {
             break;
         }
  
-        if ($vehicleStatus == 1) {
-            // AMR が利用可能な場合、MissionWorks API を呼び出す
-            // 仕様に合わせ、missionId, missionCode, runtimeParam, callbackUrl を渡す
+        // 修正: AMRの状態が利用可能(1) または 充電中(3) の場合にタスクを実行
+        if ($vehicleStatus == 1 || $vehicleStatus == 3) {
+            // AMRが利用可能または充電中の場合、MissionWorks API を呼び出す
             $missionCode  = ""; // 必要に応じて設定
             $runtimeParam = ["marker1" => ""]; // 例: デフォルト値。必要なら変更
             $missionWorks = sendMissionWorksRequest($missionId, $missionCode, $runtimeParam, $callbackUrl);
