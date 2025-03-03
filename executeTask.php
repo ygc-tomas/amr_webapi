@@ -200,7 +200,7 @@ function updateTaskStatus($missionId, $status) {
  
 // --- 新規追加: タスク制御API 呼び出し関数 ---
 // タスクを続行する
-function continueTask($missionId) {
+function continueTask() {
     $apiUrl = SERVER_URL . "/api/v3/missionWorks/" . urlencode($missionId) . "/controls/continue";
     $context = stream_context_create([
         'http' => [
@@ -212,7 +212,7 @@ function continueTask($missionId) {
 }
  
 // タスクを再開する
-function resumeTask($missionId) {
+function resumeTask() {
     $apiUrl = SERVER_URL . "/api/v3/missionWorks/" . urlencode($missionId) . "/controls/resume";
     $context = stream_context_create([
         'http' => [
@@ -224,7 +224,7 @@ function resumeTask($missionId) {
 }
  
 // タスクを一時停止する
-function pauseTask($missionId) {
+function pauseTask() {
     $apiUrl = SERVER_URL . "/api/v3/missionWorks/" . urlencode($missionId) . "/controls/pause";
     $context = stream_context_create([
         'http' => [
@@ -237,130 +237,110 @@ function pauseTask($missionId) {
  
 // Function to execute the Web API task
 function executeWebAPITask() {
-    $pendingTask = getPendingTask();
-    if (!$pendingTask) {
-        echo "No pending tasks found.<br>\n";
-        return;
-    }
- 
-    $missionId = $pendingTask;
-    // コールバックURLを固定で指定する
-    // Develop Env
-    $callbackUrl = 'http://192.168.56.1:8080/api/callback/callback.php';
-    // Production Env
-    // $callbackUrl = 'http://192.168.51.41:8080/api/callback/callback.php';
- 
-    $startTime = date('Y-m-d H:i:s');
-    logTaskExecution($missionId, 'STARTED', 'Task execution started', [
-        'start_time' => $startTime,
-        'end_time'   => null,
-    ]);
- 
-    // 新しいタスク開始時に前回のレスポンスをクリアする（必要に応じて）
-    $clearResponseUrl = $callbackUrl . '?missionId=' . urlencode($missionId) . '&clear=1';
-    file_get_contents($clearResponseUrl);
- 
-    $maxAttempts = 10;
-    $attempts = 0;
-    $taskCompleted = false;
- 
-    while ($attempts < $maxAttempts && !$taskCompleted) {
-        $attempts++;
- 
-        // タスク制御前に待機（ここでは10秒）
-        sleep(10);
- 
-        // まず、コールバックレスポンスを取得
-        $callbackResponse = getCallbackResponse($missionId);
-        if ($callbackResponse !== null) {
-            if (strcasecmp($callbackResponse, 'Success') === 0) {
-                echo "Callback Status: " . $callbackResponse . "<br>\n";
-                updateTaskStatus($missionId, 'COMPLETED');
-                logTaskExecution($missionId, 'COMPLETED', 'Task completed', [
-                    'start_time' => $startTime,
-                    'end_time'   => date('Y-m-d H:i:s'),
-                ]);
-                echo "Task completed<br>\n";
-                $taskCompleted = true;
-                break;
-            } else {
-                echo "Callback Status: " . $callbackResponse . " - Waiting for Success...<br>\n";
-                logTaskExecution($missionId, 'WAITING', "Waiting for Success. Current Status: " . $callbackResponse, [
-                    'start_time' => $startTime,
-                    'end_time'   => null,
-                ]);
-            }
-        } else {
-            echo "Attempt $attempts - No callback response received. Waiting...<br>\n";
-            logTaskExecution($missionId, 'WAITING', "No callback response received. Attempt: $attempts", [
-                'start_time' => $startTime,
-                'end_time'   => null,
-            ]);
+    while(true) {
+        $pendingTask = getPendingTask();
+        if (!$pendingTask) {
+            echo "No pending tasks found.<br>\n";
+            sleep(10); //10秒待機
+            continue;
         }
- 
+    
+        $missionId = $pendingTask;
+        // コールバックURLを固定で指定する
+        // Develop Env
+        $callbackUrl = 'http://192.168.56.1:8080/api/callback/callback.php';
+        // Production Env
+        // $callbackUrl = 'http://192.168.51.41:8080/api/callback/callback.php';
+    
+        $startTime = date('Y-m-d H:i:s');
+        logTaskExecution($missionId, 'STARTED', 'Task execution started', [
+            'start_time' => $startTime,
+            'end_time'   => null,
+        ]);
+    
+        // 新しいタスク開始時に前回のレスポンスをクリアする（必要に応じて）
+        $clearResponseUrl = $callbackUrl . '?missionId=' . urlencode($missionId) . '&clear=1';
+        file_get_contents($clearResponseUrl);
+    
+        $maxAttempts = 10;
+        $attempts = 0;
+        $taskCompleted = false;
+    
+        while ($attempts < $maxAttempts && !$taskCompleted) {
+            $attempts++;
+    
+            // タスク制御前に待機（ここでは10秒）
+            sleep(10);
+    
+            // まず、コールバックレスポンスを取得
+            $callbackResponse = getCallbackResponse($missionId);
+                if (strcasecmp($callbackResponse, 'Success') === 0) {
+                    echo "Callback Status: " . $callbackResponse . "<br>\n";
+                    updateTaskStatus($missionId, 'COMPLETED');
+                    logTaskExecution($missionId, 'COMPLETED', 'Task completed', [
+                        'start_time' => $startTime,
+                        'end_time'   => date('Y-m-d H:i:s'),
+                    ]);
+                    echo "Task completed<br>\n";
+                    $taskCompleted = true;
+                } else {
+                    echo "Callback Status: " . $callbackResponse . " - Waiting for Success...<br>\n";
+                    logTaskExecution($missionId, 'WAITING', "Waiting for Success. Current Status: " . $callbackResponse, [
+                        'start_time' => $startTime,
+                        'end_time'   => null,
+                    ]);
+                }
+        }
+
+        if (!$taskCompleted) {
+            echo "Maximum number of attempts reached. Terminating process.\n";
+        }
+    }
+}
+
+// AMRの実行状況を監視し、タスクを制御する関数
+function monitorAMRStatus() {
+    while (true) {
         // AMRの実行状況照会を実施
-        $vehicleData = getVehicleStatus();
-        if ($vehicleData === null) {
-            $errorMsg = "Unable to obtain a valid response from the AMR real-time inquiry.";
+        $vehicleStatus = getVehicleStatus();
+
+        if ($vehicleStatus === null) {
+            $errorMsg = "Unable to obtain a valid response(status) from the AMR real-time.Try again...\n";
             logTaskExecution($missionId, 'ERROR', $errorMsg, [
                 'error_code' => 1001,
                 'start_time' => $startTime,
                 'end_time'   => date('Y-m-d H:i:s'),
             ]);
             echo "Error: " . $errorMsg . "<br>\n";
-            break;
+            sleep(5);
+            continue;
         }
- 
-        $workStatus    = $vehicleData['workStatus'];
-        $abnormalStatus = $vehicleData['abnormalStatus'];
- 
+
+        $workStatus = $vehicleStatus['workStatus'];
+        $abnormalStatus = $vehicleStatus['abnormalStatus'];
+
         // ここで、AMR の状態に基づきタスク制御APIを呼び出す
-        // 例:
-        // - 正常状態 (workStatus == 1 && abnormalStatus == 1) → タスクを続行 (continueTask)
+        // - 正常状態 (workStatus == 1 && abnormalStatus == 1) → タスクを続行する (continueTask)
         // - 充電中 (workStatus == 3) または 異常がある (abnormalStatus != 1) → タスクを一時停止 (pauseTask)
         if ($workStatus == 1 && $abnormalStatus == 1) {
             // 正常状態の場合、タスクを続行
-            $continueResponse = continueTask($missionId);
-            echo "Called continueTask API, response: " . $continueResponse . "<br>\n";
+            echo "Called continueTask API<br>\n";
+            continueTask();
         } elseif ($workStatus == 3 || $abnormalStatus != 1) {
-            // 充電中または異常の場合、タスクを一時停止
-            $pauseResponse = pauseTask($missionId);
-            echo "Called pauseTask API, response: " . $pauseResponse . "<br>\n";
+            // 充電中または異常の場合、タスクを一時停止¥¥
+            echo "Called pauseTask API<br>\n";
+            pauseTask();
         }
- 
-        // MissionWorks API の呼び出し（タスク実行リクエスト）
-        $missionCode  = ""; // 必要に応じて設定
-        $runtimeParam = ["marker1" => ""]; // 例: デフォルト値
-        $missionWorks = sendMissionWorksRequest($missionId, $missionCode, $runtimeParam, $callbackUrl);
-        if ($missionWorks === null) {
-            $errorMsg = "Invalid response from MissionWorks.";
-            logTaskExecution($missionId, 'ERROR', $errorMsg, [
-                'error_code' => 1002,
-                'start_time' => $startTime,
-                'end_time'   => date('Y-m-d H:i:s'),
-            ]);
-            echo "Error: " . $errorMsg . "<br>\n";
-            break;
-        }
- 
-        // タスクの進捗を記録
-        logTaskExecution($missionId, 'PROCESSING', 'Task in progress', [
-            'start_time' => $startTime,
-            'end_time'   => null,
-        ]);
-        echo "Task in progress: status = Processing<br>\n";
-    }
- 
-    if (!$taskCompleted && $attempts >= $maxAttempts) {
-        logTaskExecution($missionId, 'MAX_ATTEMPTS_REACHED', 'Reached maximum number of attempts (' . $maxAttempts . ')', [
-            'error_code' => 1004,
-            'start_time' => $startTime,
-            'end_time'   => date('Y-m-d H:i:s'),
-        ]);
-        echo "Maximum number of attempts reached. Terminating process.<br>\n";
+
+        sleep(10); // 10秒待機
     }
 }
  
-// Execute the main process
-executeWebAPITask();
+// **AMR監視を並行処理で実行**
+if (pcntl_fork() == 0) {
+    monitorAMRStatus();
+} else {
+    executeWebAPITask();
+}
 ?>
+
