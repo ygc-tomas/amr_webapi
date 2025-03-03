@@ -50,7 +50,6 @@ function getVehicleStatus() {
          return null;
      }
      
-     // workStatus と abnormalStatus を返す
      return [
          'workStatus'    => $data['workStatus'] ?? null,
          'abnormalStatus'=> $data['abnormalStatus'] ?? null
@@ -60,18 +59,6 @@ function getVehicleStatus() {
 //-------------------------------------------------
 // MissionWorks API 呼び出し（タスク実行リクエスト）
 //-------------------------------------------------
-/*
- 仕様:
- {
-    "missionId": "752170cb-f1e9-4c0a-8b07-530e533c1d6c",
-    "missionCode": "",
-    "callbackUrl": "",
-    "runtimeParam": {
-         "marker1": ""
-    }
- }
- ※レスポンスには、"status" とタスク実行時に生成される一意の runtime id (フィールド名 "id") が含まれる
-*/
 function sendMissionWorksRequest($missionId, $missionCode, $runtimeParam, $callbackUrl) {
     $apiUrl = SERVER_URL . '/api/v3/missionWorks';
  
@@ -93,7 +80,6 @@ function sendMissionWorksRequest($missionId, $missionCode, $runtimeParam, $callb
     
     $missionResponse = file_get_contents($apiUrl, false, $context);
  
-    // HTTPステータス取得
     $rawStatusLine = isset($http_response_header[0]) ? $http_response_header[0] : '';
     $parts = explode(' ', trim($rawStatusLine));
     $httpCode = isset($parts[1]) ? $parts[1] : null;
@@ -111,21 +97,19 @@ function sendMissionWorksRequest($missionId, $missionCode, $runtimeParam, $callb
     }
     
     error_log("MissionWorks Response: " . print_r($data, true));
-    // 返り値は、status と runtime id (フィールド名 "id")
     return [
         'status'    => $data['status'] ?? null,
-        'runtimeId' => $data['id'] ?? null // field name "id" is the runtime id
+        'runtimeId' => $data['id'] ?? null  // 生成されたランタイムID
     ];
 }
  
 //-------------------------------------------------
 // コールバックレスポンス取得（GETリクエスト）
-// ※仕様では、コールバックのGETパラメータは元のタスクID（missionId）を利用する
+//-------------------------------------------------
 function getCallbackResponse($missionId) {
-    // DBに登録されているタスクID（missionId）で検索
-    // Develop Env
+    // DBに登録された元のタスクID (missionId) を利用して検索
     $url = 'http://192.168.56.1:8080/api/callback/callback.php?missionId=' . urlencode($missionId);
-    // Production Env
+    // Production Env: 
     // $url = 'http://192.168.51.41:8080/api/callback/callback.php?missionId=' . urlencode($missionId);
     
     $response = file_get_contents($url);
@@ -171,9 +155,10 @@ function logTaskExecution($missionId, $status, $details, $additionalData = []) {
         
         $stmt = $conn->prepare($sql);
         $stmt->execute([
-            ':mission_id'        => $missionId, // DBには元のタスクID (missionId) が登録されている
+            ':mission_id'        => $missionId, // DBには元のタスクID (mission_id)
             ':mission_code'      => $additionalData['mission_code'] ?? 'unknown_code',
-            ':runtime_id'        => $missionId, // DB上は mission_id のみ登録
+            // DB上は mission_id のみ登録されるが、以降の制御では生成された runtimeId を利用するため、ここは missionId のままとする
+            ':runtime_id'        => $missionId,
             ':status'            => $status,
             ':allocation_status' => $additionalData['allocation_status'] ?? 'unassigned',
             ':sequence'          => $additionalData['sequence'] ?? 2,
@@ -202,7 +187,10 @@ function getPendingTask() {
                 ORDER BY sequence DESC, created_at ASC";
         $stmt = $conn->query($sql);
         $result = $stmt->fetch(PDO::FETCH_ASSOC);
-        // ここでは、元のタスクID（mission_id）を返す
+        // もし runtime_id が設定されていればそちらを優先して返す（以降のタスク制御で利用）
+        if ($result && !empty($result['runtime_id'])) {
+            return $result['runtime_id'];
+        }
         return $result ? $result['mission_id'] : null;
     } catch (Exception $e) {
         error_log("Database error: Unable to retrieve tasks. " . $e->getMessage());
@@ -275,11 +263,13 @@ function executeWebAPITask() {
             continue;
         }
     
-        // DBには mission_id (元のタスクID) が登録されている
+        // DBに登録されている元のタスクID（mission_id）でタスクが開始されるが、
+        // その後の制御は生成された runtimeId を利用するので、初回は mission_id を設定
         $missionId = $pendingTask;
+        $runtimeId = $missionId; // 初期値は元のタスクID
         // コールバックURL（開発環境）
         $callbackUrl = 'http://192.168.56.1:8080/api/callback/callback.php';
-        // Production Env 例: $callbackUrl = 'http://192.168.51.41:8080/api/callback/callback.php';
+        // Production Env: $callbackUrl = 'http://192.168.51.41:8080/api/callback/callback.php';
     
         $startTime = date('Y-m-d H:i:s');
         logTaskExecution($missionId, 'STARTED', 'Task execution started', [
@@ -294,14 +284,13 @@ function executeWebAPITask() {
         $maxAttempts = 10;
         $attempts = 0;
         $taskCompleted = false;
-        $runtimeId = null; // 後続のタスク制御用 runtimeId（生成された値）
     
         while ($attempts < $maxAttempts && !$taskCompleted) {
             $attempts++;
     
             sleep(10); // 10秒待機
     
-            // コールバックレスポンスの取得（DBの mission_id を使って検索）
+            // まず、コールバックレスポンスを取得（DBの元のタスクIDで検索）
             $callbackResponse = getCallbackResponse($missionId);
             if ($callbackResponse !== null) {
                 if (strcasecmp($callbackResponse, 'Success') === 0) {
@@ -347,7 +336,7 @@ function executeWebAPITask() {
     
             // 条件 U：正常状態の場合 (workStatus == 1 AND abnormalStatus == 1)
             if ($workStatus == 1 && $abnormalStatus == 1) {
-                // 正常状態なら、MissionWorks API を送信してタスク実行リクエスト
+                // 正常状態なら、MissionWorks API を呼び出しタスク実行リクエストを送信
                 $missionCode  = ""; // 任意
                 $runtimeParam = ["marker1" => ""]; // 任意のランタイムパラメータ
                 $missionWorksResponse = sendMissionWorksRequest($missionId, $missionCode, $runtimeParam, $callbackUrl);
@@ -361,8 +350,8 @@ function executeWebAPITask() {
                     echo "Error: " . $errorMsg . "<br>\n";
                     break;
                 }
-                // 生成された runtimeId を取得し、以降のタスク制御APIに利用
-                $runtimeId = $missionWorksResponse['Id']; // レスポンスのIdに生成されたランタイムIDが格納されている
+                // 生成された runtimeId を取得し、以降のタスク制御に利用する
+                $runtimeId = $missionWorksResponse['runtimeId'];
                 echo "MissionWorks API sent. Received runtimeId: " . $runtimeId . "<br>\n";
                 logTaskExecution($missionId, 'PROCESSING', 'Task in progress', [
                     'start_time' => $startTime,
@@ -372,7 +361,7 @@ function executeWebAPITask() {
             } else {
                 // 条件 U 以外の場合：指定異常として処理終了
                 echo "Vehicle status abnormal (workStatus: $workStatus, abnormalStatus: $abnormalStatus).<br>\n";
-                logTaskExecution($missionId, 'ERROR', "Specified abnormal condition encountered in vehicle status (workStatus: $workStatus, abnormalStatus: $abnormalStatus)", [
+                logTaskExecution($missionId, 'ERROR', "Specified abnormal condition encountered (workStatus: $workStatus, abnormalStatus: $abnormalStatus)", [
                     'error_code' => 999,
                     'start_time' => $startTime,
                     'end_time'   => date('Y-m-d H:i:s'),
@@ -397,9 +386,8 @@ function executeWebAPITask() {
 //-------------------------------------------------
 function monitorAMRStatus() {
     while (true) {
-        // mission_idとしてタスクの一意の付番を取得
-        $missionId = getPendingTask();
-        if (!$missionId) {
+        $runtimeId = getPendingTask();
+        if (!$runtimeId) {
             echo "Monitor: No pending task.<br>\n";
             sleep(10);
             continue;
@@ -417,16 +405,14 @@ function monitorAMRStatus() {
         $workStatus = $vehicleData['workStatus'];
         $abnormalStatus = $vehicleData['abnormalStatus'];
     
-        // Monitor側は、取得した missionId を利用してタスク制御を実行
-        //　例では正常状態の場合に、タスクを続行する（タスクの一時停止状態からの再開に利用する）
-        //       異常状態の場合に、タスクの一時停止を行う（充電時に、タスクを一時停止し、充電完了後に再開する。
+        // Monitor側は、生成された runtimeId を利用してタスク制御を行う
         if ($workStatus == 1 && $abnormalStatus == 1) {
-            echo "Monitor: AMR is normal. Calling continueTask API for missionId: $missionId<br>\n";
-            $response = continueTaskAPI($runtimeId);  //ランタイムIDを渡し、タスク制御に用いる
+            echo "Monitor: AMR is normal. Calling continueTask API for runtimeId: $runtimeId<br>\n";
+            $response = continueTaskAPI($runtimeId);
             echo "Monitor continueTask response: " . $response . "<br>\n";
         } elseif ($workStatus == 3 || $abnormalStatus != 1) {
-            echo "Monitor: AMR is charging or abnormal. Calling pauseTask API for missionId: $missionId<br>\n";
-            $response = pauseTaskAPI($runtimeId); 
+            echo "Monitor: AMR is charging or abnormal. Calling pauseTask API for runtimeId: $runtimeId<br>\n";
+            $response = pauseTaskAPI($runtimeId);
             echo "Monitor pauseTask response: " . $response . "<br>\n";
         }
     
