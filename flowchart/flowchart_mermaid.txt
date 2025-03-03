@@ -1,0 +1,57 @@
+flowchart TD
+    A[Start] --> B[DBから未完了タスクの runtime_id を取得  getPendingTask]
+    B -- ”タスクなし” --> C[表示 ”No pending tasks found”, Wait 10秒, Loop再開]
+    B -- ”タスクあり” --> D[missionId=runtime_idと callbackUrl を設定]
+    D --> E[タスク開始ログ記録  logTaskExecution]
+    E --> F[前回のコールバックレスポンスをクリア  GET: callback.php?missionId=...&clear=1]
+    F --> G[Inner Loop: Initialize attempts=0, maxAttempts=10, taskCompleted=false]
+    
+    G --> H[Wait 10秒]
+    H --> I[GET コールバックレスポンス  getCallbackResponse]
+    I --> J{Callback Response received?}
+    J -- Yes --> K{Response == ”Success”?}
+    K -- Yes --> L[表示 ”Callback Status: Success”]
+    L --> M[DB更新: タスク状態を COMPLETED  updateTaskStatus]
+    M --> N[タスク完了ログ記録  logTaskExecution]
+    N --> O[表示 ”Task completed”, Exit Inner Loop]
+    K -- No --> P[表示 ”Callback Status: [status] - Waiting...”, Log waiting]
+    J -- No --> Q[表示 ”No callback response received”, Log waiting]
+    P & Q --> R[GET AMR状態  getVehicleStatus]
+    R --> S{vehicleData valid?}
+    S -- No --> T[Log error ”Invalid AMR response” & Exit Inner Loop]
+    S -- Yes --> U[Extract workStatus & abnormalStatus]
+    U --> V{ workStatus == 1 AND abnormalStatus == 1?}
+    V -- Yes --> W[Call MissionWorks API  sendMissionWorksRequest with missionId, missionCode, runtimeParam, callbackUrl]
+    W --> X{Valid Response?}
+    X -- No --> Y[Log error ”Invalid response from MissionWorks” & Exit Inner Loop]
+    X -- Yes --> Z[Extract new runtimeId from response]
+    Z --> AA[Log ”Task in progress: Processing” & display message]
+    AA --> AB[Loop back to Inner Loop]
+    V -- No --> AC[Display ”Specified abnormal condition encountered”, Log error, Exit Inner Loop]
+    
+    AB --> AD{attempts >= maxAttempts?}
+    AD -- Yes --> AE[Log ”Maximum attempts reached” & Display termination message, Exit executeWebAPITask]
+    AD -- No --> H
+    
+    %% Monitorプロセス
+    subgraph Monitor[AMR状態監視  monitorAMRStatus]
+        M1[無限ループ開始]
+        M1 --> M2[DBから最新の未完了タスクの runtime_id を取得  getPendingTask]
+        M2 -- タスクなし --> M3[表示 ”Monitor: No pending task”, Wait 10秒, Loop back]
+        M2 -- タスクあり --> M4[取得した runtime_id を設定]
+        M4 --> M5[GET AMR状態  getVehicleStatus]
+        M5 --> M6{vehicleData valid?}
+        M6 -- No --> M7[表示 ”Monitor: Invalid AMR response”, Wait 5秒, Loop back]
+        M6 -- Yes --> M8[Extract workStatus & abnormalStatus]
+        M8 --> M9{ workStatus == 1 AND abnormalStatus == 1?}
+        M9 -- Yes --> M10[Call continueTaskAPI runtime_id]
+        M10 --> M11[表示 ”Monitor: Called continueTask API”]
+        M9 -- No --> M12[Call pauseTaskAPI runtime_id]
+        M12 --> M13[表示 ”Monitor: Called pauseTask API”]
+        M13 --> M14[Wait 10秒, Loop back]
+    end
+
+    %% 並行プロセスの開始
+    B --- P1[pcntl_fork  により分岐]
+    P1 -- 子プロセス --> Monitor
+    P1 -- 親プロセス --> D
