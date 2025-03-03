@@ -114,7 +114,7 @@ function sendMissionWorksRequest($missionId, $missionCode, $runtimeParam, $callb
     // 返り値は、status と runtime id (フィールド名 "id")
     return [
         'status'    => $data['status'] ?? null,
-        'runtimeId' => $data['id'] ?? null
+        'runtimeId' => $data['id'] ?? null // field name "id" is the runtime id
     ];
 }
  
@@ -362,7 +362,7 @@ function executeWebAPITask() {
                     break;
                 }
                 // 生成された runtimeId を取得し、以降のタスク制御APIに利用
-                $runtimeId = $missionWorksResponse['runtimeId'];
+                $runtimeId = $missionWorksResponse['Id']; // レスポンスのIdに生成されたランタイムIDが格納されている
                 echo "MissionWorks API sent. Received runtimeId: " . $runtimeId . "<br>\n";
                 logTaskExecution($missionId, 'PROCESSING', 'Task in progress', [
                     'start_time' => $startTime,
@@ -397,6 +397,7 @@ function executeWebAPITask() {
 //-------------------------------------------------
 function monitorAMRStatus() {
     while (true) {
+        // mission_idとしてタスクの一意の付番を取得
         $missionId = getPendingTask();
         if (!$missionId) {
             echo "Monitor: No pending task.<br>\n";
@@ -417,13 +418,15 @@ function monitorAMRStatus() {
         $abnormalStatus = $vehicleData['abnormalStatus'];
     
         // Monitor側は、取得した missionId を利用してタスク制御を実行
+        //　例では正常状態の場合に、タスクを続行する（タスクの一時停止状態からの再開に利用する）
+        //       異常状態の場合に、タスクの一時停止を行う（充電時に、タスクを一時停止し、充電完了後に再開する。
         if ($workStatus == 1 && $abnormalStatus == 1) {
             echo "Monitor: AMR is normal. Calling continueTask API for missionId: $missionId<br>\n";
-            $response = continueTaskAPI($missionId); // ※本来は runtimeId を利用すべきだが、ここでは例として missionId を渡す
+            $response = continueTaskAPI($runtimeId);  //ランタイムIDを渡し、タスク制御に用いる
             echo "Monitor continueTask response: " . $response . "<br>\n";
         } elseif ($workStatus == 3 || $abnormalStatus != 1) {
             echo "Monitor: AMR is charging or abnormal. Calling pauseTask API for missionId: $missionId<br>\n";
-            $response = pauseTaskAPI($missionId); // ※本来は runtimeId を利用すべきだが、ここでは例として missionId を渡す
+            $response = pauseTaskAPI($runtimeId); 
             echo "Monitor pauseTask response: " . $response . "<br>\n";
         }
     
