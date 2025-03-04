@@ -1,5 +1,5 @@
 <?php
-set_time_limit(0); // タイムアウトなし
+set_time_limit(0); // No timeout Limit
 
 // Define the base URL for the YOUICOMPASS installed server
 // Develop Env（Mock Server）
@@ -8,7 +8,7 @@ define('SERVER_URL', 'https://3aca9239-01d0-43b9-80ca-97bb21637841.mock.pstmn.io
 //define('SERVER_URL', 'http://192.168.51.51:8080');
 
 //-------------------------------------------------
-// DB接続
+// DB connection
 //-------------------------------------------------
 function getDBConnection() {
     try {
@@ -17,8 +17,8 @@ function getDBConnection() {
          // Production Env
          // $serverName = "D1ZP3K54\\MSSQLSERVER01";
          $database   = "amr_task_db";
-         $username   = "test";         // SQL Server 認証ユーザー
-         $password   = "Koito2025";     // パスワード
+         $username   = "test";         // SQL Server Auth User
+         $password   = "Koito2025";     //Password
          
          $conn = new PDO(
              "sqlsrv:Server=$serverName;Database=$database;TrustServerCertificate=Yes",
@@ -33,7 +33,7 @@ function getDBConnection() {
 }
  
 //-------------------------------------------------
-// AMR実行状況照会（vehicles API）
+// Get response using AMR Real-time status inquiry API（/api/v3/vehicles）
 //-------------------------------------------------
 function getVehicleStatus() {
      $url = SERVER_URL . "/api/v3/vehicles";
@@ -57,8 +57,10 @@ function getVehicleStatus() {
 }
  
 //-------------------------------------------------
-// MissionWorks API 呼び出し（タスク実行リクエスト）
+// Get response using missionWorks API（/api/v3/missionWorks）
 //-------------------------------------------------
+// ※Request params{missionId, missionCode, runtimeParam, callbackUrl}
+// ※Extract "status" and "id" (runtime ID) from Response params.
 function sendMissionWorksRequest($missionId, $missionCode, $runtimeParam, $callbackUrl) {
     $apiUrl = SERVER_URL . '/api/v3/missionWorks';
  
@@ -99,7 +101,7 @@ function sendMissionWorksRequest($missionId, $missionCode, $runtimeParam, $callb
     error_log("MissionWorks Response: " . print_r($data, true));
     return [
         'status'    => $data['status'] ?? null,
-        'runtimeId' => $data['id'] ?? null  // 生成されたランタイムID
+        'runtimeId' => $data['id'] ?? null // Get runtime ID from "id" column and update runtimeId.
     ];
 }
  
@@ -107,9 +109,10 @@ function sendMissionWorksRequest($missionId, $missionCode, $runtimeParam, $callb
 // コールバックレスポンス取得（GETリクエスト）
 //-------------------------------------------------
 function getCallbackResponse($missionId) {
-    // DBに登録された元のタスクID (missionId) を利用して検索
+    // Search by mission_id (original task ID)
+    //Develop Env
     $url = 'http://192.168.56.1:8080/api/callback/callback.php?missionId=' . urlencode($missionId);
-    // Production Env: 
+    // Production Env:
     // $url = 'http://192.168.51.41:8080/api/callback/callback.php?missionId=' . urlencode($missionId);
     
     $response = file_get_contents($url);
@@ -155,9 +158,9 @@ function logTaskExecution($missionId, $status, $details, $additionalData = []) {
         
         $stmt = $conn->prepare($sql);
         $stmt->execute([
-            ':mission_id'        => $missionId, // DBには元のタスクID (mission_id)
+            ':mission_id'        => $missionId, // DBには元のタスクIDのみ登録
             ':mission_code'      => $additionalData['mission_code'] ?? 'unknown_code',
-            // DB上は mission_id のみ登録されるが、以降の制御では生成された runtimeId を利用するため、ここは missionId のままとする
+            // runtime_id はあくまでタスク制御用に API から取得した値を利用するため、DBには保存しない
             ':runtime_id'        => $missionId,
             ':status'            => $status,
             ':allocation_status' => $additionalData['allocation_status'] ?? 'unassigned',
@@ -176,21 +179,17 @@ function logTaskExecution($missionId, $status, $details, $additionalData = []) {
 }
  
 //-------------------------------------------------
-// DBから未完了タスクの mission_id を取得
+// DBから未完了タスクの mission_id を取得（No runtime_id is stored on DB.）
 //-------------------------------------------------
 function getPendingTask() {
     try {
         $conn = getDBConnection();
-        $sql = "SELECT TOP 1 mission_id, runtime_id, status 
+        $sql = "SELECT TOP 1 mission_id, status 
                 FROM task_list 
                 WHERE status != 'COMPLETED'
                 ORDER BY sequence DESC, created_at ASC";
         $stmt = $conn->query($sql);
         $result = $stmt->fetch(PDO::FETCH_ASSOC);
-        // もし runtime_id が設定されていればそちらを優先して返す（以降のタスク制御で利用）
-        if ($result && !empty($result['runtime_id'])) {
-            return $result['runtime_id'];
-        }
         return $result ? $result['mission_id'] : null;
     } catch (Exception $e) {
         error_log("Database error: Unable to retrieve tasks. " . $e->getMessage());
@@ -216,7 +215,7 @@ function updateTaskStatus($missionId, $status) {
 }
  
 //-------------------------------------------------
-// タスク制御API 呼び出し
+// タスク制御API 呼び出し（runtimeId を利用）
 //-------------------------------------------------
 function continueTaskAPI($runtimeId) {
     $apiUrl = SERVER_URL . "/api/v3/missionWorks/" . urlencode($runtimeId) . "/controls/continue";
@@ -250,23 +249,21 @@ function pauseTaskAPI($runtimeId) {
     ]);
     return file_get_contents($apiUrl, false, $context);
 }
- 
+
 //-------------------------------------------------
 // タスク実行処理（executeWebAPITask）
 //-------------------------------------------------
 function executeWebAPITask() {
     while (true) {
-        $pendingTask = getPendingTask();
-        if (!$pendingTask) {
+        $missionId = getPendingTask();
+        if (!$missionId) {
             echo "No pending tasks found.<br>\n";
             sleep(10);
             continue;
         }
     
-        // DBに登録されている元のタスクID（mission_id）でタスクが開始されるが、
-        // その後の制御は生成された runtimeId を利用するので、初回は mission_id を設定
-        $missionId = $pendingTask;
-        $runtimeId = $missionId; // 初期値は元のタスクID
+        // タスク開始時、DBに登録されている元のタスクID (mission_id) を利用
+        $runtimeId = null; // 初回は未取得状態とする
         // コールバックURL（開発環境）
         $callbackUrl = 'http://192.168.56.1:8080/api/callback/callback.php';
         // Production Env: $callbackUrl = 'http://192.168.51.41:8080/api/callback/callback.php';
@@ -287,10 +284,9 @@ function executeWebAPITask() {
     
         while ($attempts < $maxAttempts && !$taskCompleted) {
             $attempts++;
-    
             sleep(10); // 10秒待機
-    
-            // まず、コールバックレスポンスを取得（DBの元のタスクIDで検索）
+            
+            // まず、コールバックレスポンスを取得（mission_id で検索）
             $callbackResponse = getCallbackResponse($missionId);
             if ($callbackResponse !== null) {
                 if (strcasecmp($callbackResponse, 'Success') === 0) {
@@ -336,7 +332,7 @@ function executeWebAPITask() {
     
             // 条件 U：正常状態の場合 (workStatus == 1 AND abnormalStatus == 1)
             if ($workStatus == 1 && $abnormalStatus == 1) {
-                // 正常状態なら、MissionWorks API を呼び出しタスク実行リクエストを送信
+                // 正常状態の場合、MissionWorks API を呼び出してタスク実行リクエストを送信
                 $missionCode  = ""; // 任意
                 $runtimeParam = ["marker1" => ""]; // 任意のランタイムパラメータ
                 $missionWorksResponse = sendMissionWorksRequest($missionId, $missionCode, $runtimeParam, $callbackUrl);
@@ -350,7 +346,7 @@ function executeWebAPITask() {
                     echo "Error: " . $errorMsg . "<br>\n";
                     break;
                 }
-                // 生成された runtimeId を取得し、以降のタスク制御に利用する
+                // 生成された runtimeId を取得（これ以降のタスク制御に利用）
                 $runtimeId = $missionWorksResponse['runtimeId'];
                 echo "MissionWorks API sent. Received runtimeId: " . $runtimeId . "<br>\n";
                 logTaskExecution($missionId, 'PROCESSING', 'Task in progress', [
@@ -380,18 +376,26 @@ function executeWebAPITask() {
         }
     }
 }
+
  
 //-------------------------------------------------
 // AMR状態監視プロセス（独立プロセスで実行）
 //-------------------------------------------------
 function monitorAMRStatus() {
     while (true) {
-        $runtimeId = getPendingTask();
-        if (!$runtimeId) {
+        // 未完了タスクの元のタスクIDを取得（DBには mission_id のみ登録）
+        $missionId = getPendingTask();
+        if (!$missionId) {
             echo "Monitor: No pending task.<br>\n";
             sleep(10);
             continue;
         }
+    
+        // ※ここでは、タスク実行後に生成された runtimeId を利用する必要があるが、
+        // DBに保持していないため、ここでは executeWebAPITask() 内で取得した runtimeId を
+        // 別プロセス間で共有する仕組みは実装していません。
+        // そのため、モニタープロセスはあくまで mission_id を利用して監視する例とします。
+        $runtimeId = $missionId;
     
         $vehicleData = getVehicleStatus();
         if ($vehicleData === null) {
@@ -405,7 +409,7 @@ function monitorAMRStatus() {
         $workStatus = $vehicleData['workStatus'];
         $abnormalStatus = $vehicleData['abnormalStatus'];
     
-        // Monitor側は、生成された runtimeId を利用してタスク制御を行う
+        // Monitor側は、生成された runtimeId を利用してタスク制御APIを呼び出す
         if ($workStatus == 1 && $abnormalStatus == 1) {
             echo "Monitor: AMR is normal. Calling continueTask API for runtimeId: $runtimeId<br>\n";
             $response = continueTaskAPI($runtimeId);
