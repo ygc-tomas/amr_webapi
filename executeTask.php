@@ -358,9 +358,9 @@ function executeWebAPITask() {
  
         $workStatus = $vehicleData["workStatus"];
         $abnormalStatus = $vehicleData["abnormalStatus"];
-        $battery = $vehicleData["battery"];
+        $battery = $vehicleData["battery_value"];
  
-        // Battery check: if battery level is less than or equal to 10 percent, then wait until battery level is at least 30 percent
+        // Battery check: if battery level is less than or equal to 10 percent,judge as battery charging. then wait until battery level is at least 30 percent
         if ($battery !== null && $battery <= 10) {
             echo "Battery low at " . $battery . "%. Initiating charge process...<br>\n";
             $chargeConfig = getSmartChargeConfig();
@@ -430,7 +430,7 @@ function monitorAMRStatus() {
     
         $workStatus = $vehicleData["workStatus"];
         $abnormalStatus = $vehicleData["abnormalStatus"];
-        $battery = $vehicleData["battery"];
+        $battery = $vehicleData["battery_value"];
     
         // Battery check in monitor process
         if ($battery !== null && $battery <= 10) {
