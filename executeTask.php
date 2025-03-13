@@ -329,6 +329,7 @@ $runtimeMapping = []; // Global associative array: missionId => runtimeId
 // Task execution process
 //-------------------------------------------------
 function executeWebAPITask() {
+  while(true){
     global $runtimeMapping;
     
     $pendingTask = getPendingTask();
@@ -475,6 +476,7 @@ function executeWebAPITask() {
             setSmartChargeOn();
         }
     }
+  }
 }
  
 //-------------------------------------------------
