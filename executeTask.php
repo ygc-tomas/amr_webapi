@@ -1,11 +1,10 @@
 <?php
-set_time_limit(0); // タイムアウトなし
+set_time_limit(0); // No timeout
 
 // Define the base URL for the YOUICOMPASS installed server
 // Production Env
 define('SERVER_URL', 'http://192.168.51.51:8080');
-// Develop Env (example)
-// define('SERVER_URL', 'https://3aca9239-01d0-43b9-80ca-97bb21637841.mock.pstmn.io');
+// (For development, you might use a mock server URL)
 
 //-------------------------------------------------
 // Database connection
@@ -79,7 +78,7 @@ function getSmartChargeConfig() {
                 error_log("JSON Decode Error in SMART_CHARGE parameter: " . json_last_error_msg());
                 return null;
             }
-            return $params; // 例: mustChargeBatteryValue と canChargeBatteryValue
+            return $params;
         }
     }
     error_log("SMART_CHARGE config not found");
@@ -87,7 +86,7 @@ function getSmartChargeConfig() {
 }
  
 //-------------------------------------------------
-// Smart Charge control (on) API calls
+// Smart Charge control API calls
 //-------------------------------------------------
 function setSmartChargeOff() {
     $url = SERVER_URL . "/api/v3/agvFunctionConfigs/smart_charge_common";
@@ -184,7 +183,8 @@ function sendMissionWorksRequest($missionId, $missionCode, $runtimeParam, $callb
 // Get callback response via GET from callback.php using runtime id
 //-------------------------------------------------
 function getCallbackResponse($runtimeId) {
-    $url = "http://192.168.51.41:8080/api/callback/callback.php?missionId=" . urlencode($runtimeId);
+    // Change parameter to runtimeId so that callback search is based on runtime id
+    $url = "http://192.168.51.41:8080/api/callback/callback.php?runtimeId=" . urlencode($runtimeId);
     $response = file_get_contents($url);
     
     if ($response === false) {
@@ -202,7 +202,7 @@ function getCallbackResponse($runtimeId) {
 }
  
 //-------------------------------------------------
-// Task execution log into database
+// Record task execution log into database
 //-------------------------------------------------
 function logTaskExecution($missionId, $status, $details, $additionalData = []) {
     try {
@@ -230,7 +230,7 @@ function logTaskExecution($missionId, $status, $details, $additionalData = []) {
         $stmt->execute([
             ":mission_id" => $missionId,
             ":mission_code" => $additionalData["mission_code"] ?? "unknown_code",
-            ":runtime_id" => null,
+            ":runtime_id" => isset($additionalData["runtime_id"]) ? $additionalData["runtime_id"] : null,
             ":status" => $status,
             ":allocation_status" => $additionalData["allocation_status"] ?? "unassigned",
             ":sequence" => $additionalData["sequence"] ?? 2,
@@ -238,7 +238,7 @@ function logTaskExecution($missionId, $status, $details, $additionalData = []) {
             ":error_code" => $additionalData["error_code"] ?? null,
             ":message" => $additionalData["message"] ?? null,
             ":start_time" => $additionalData["start_time"] ?? null,
-            ":end_time" => $additionalData["end_time"] ?? null,
+            ":end_time" => $additionalData["end_time"] ?? null
         ]);
         return true;
     } catch (Exception $e) {
@@ -321,9 +321,16 @@ function pauseTaskAPI($runtimeId) {
 }
  
 //-------------------------------------------------
+// Global mapping of mission id to runtime id
+//-------------------------------------------------
+$runtimeMapping = []; // Global associative array: missionId => runtimeId
+ 
+//-------------------------------------------------
 // Task execution process
 //-------------------------------------------------
 function executeWebAPITask() {
+    global $runtimeMapping;
+    
     $pendingTask = getPendingTask();
     if (!$pendingTask) {
         echo "No pending tasks found<br>\n";
@@ -342,7 +349,7 @@ function executeWebAPITask() {
     $clearResponseUrl = $callbackUrl . "?missionId=" . urlencode($missionId) . "&clear=1";
     file_get_contents($clearResponseUrl);
  
-    // Before executing task, disable smart charge (turn OFF)
+    // Before executing the task, disable smart charge
     setSmartChargeOff();
     echo "Smart Charge turned OFF for task execution<br>\n";
  
@@ -356,6 +363,8 @@ function executeWebAPITask() {
         return;
     }
     $runtimeId = $runtimeIdData["runtimeId"];
+    // Store runtime id in global mapping
+    $runtimeMapping[$missionId] = $runtimeId;
     echo "Received runtimeId " . $runtimeId . " from MissionWorks API<br>\n";
  
     $maxAttempts = 10;
@@ -365,14 +374,10 @@ function executeWebAPITask() {
     while ($attempts < $maxAttempts && !$taskCompleted) {
         $attempts++;
         sleep(10); // Wait 10 seconds
-
-        // for debug
-        error_log("missionId = $missionId");
-        error_log("runtimeId = $runtimeId");
  
         // Retrieve callback response using runtime id
         $callbackResponse = getCallbackResponse($runtimeId);
-        error_log("callbackResponse = " . $callbackResponse);
+        error_log("Callback response for runtimeId $runtimeId: " . $callbackResponse);
         if ($callbackResponse !== null) {
             if (strcasecmp($callbackResponse, "Success") === 0) {
                 echo "Callback Status: " . $callbackResponse . "<br>\n";
@@ -476,7 +481,9 @@ function executeWebAPITask() {
 // AMR status monitor process (runs concurrently if pcntl_fork available)
 //-------------------------------------------------
 function monitorAMRStatus() {
+    global $runtimeMapping;
     while (true) {
+        // Retrieve pending task from DB (mission_id)
         $missionId = getPendingTask();
         if (!$missionId) {
             echo "Monitor: No pending task.<br>\n";
@@ -484,8 +491,16 @@ function monitorAMRStatus() {
             continue;
         }
     
-        // In monitor process, if runtime id is not generated, use mission id as control id
-        $runtimeId = $missionId;
+        // Check if a runtime id exists for this task from global mapping
+        if (isset($runtimeMapping[$missionId])) {
+            $runtimeId = $runtimeMapping[$missionId];
+        } else {
+            // If not yet executed, use mission id (but control APIs expect runtime id)
+            echo "Monitor: Runtime id not available for mission " . $missionId . ".<br>\n";
+            sleep(10);
+            continue;
+        }
+    
         $vehicleData = getVehicleStatus();
         if ($vehicleData === null) {
             echo "Monitor: Unable to obtain valid AMR response.<br>\n";
@@ -497,6 +512,7 @@ function monitorAMRStatus() {
         $abnormalStatus = $vehicleData["abnormalStatus"];
         $battery = $vehicleData["battery_value"];
     
+        // Battery check in monitor process
         if ($battery !== null && $battery <= 10) {
             echo "Monitor: Battery low at " . $battery . "%. Retrieving SMART_CHARGE config...<br>\n";
             $chargeConfig = getSmartChargeConfig();
@@ -517,6 +533,7 @@ function monitorAMRStatus() {
             }
         }
     
+        // AMR status decision: if normal, call continueTask; if charging or abnormal, call pauseTask
         if ($workStatus == 1 && $abnormalStatus == 1) {
             echo "Monitor: AMR normal. Calling continueTask API for runtime id " . $runtimeId . "<br>\n";
             $response = continueTaskAPI($runtimeId);
@@ -534,6 +551,9 @@ function monitorAMRStatus() {
 //-------------------------------------------------
 // Main execution process
 //-------------------------------------------------
+global $runtimeMapping;
+$runtimeMapping = array();
+ 
 if (function_exists("pcntl_fork")) {
     $pid = pcntl_fork();
     if ($pid == -1) {
@@ -543,14 +563,13 @@ if (function_exists("pcntl_fork")) {
         monitorAMRStatus();
         exit(0);
     } else {
-        // Parent process: Execute web API task
+        // Parent process: Execute task(s)
         executeWebAPITask();
     }
 } else {
     echo "pcntl_fork is not available. Running tasks sequentially.<br>\n";
     while (true) {
         executeWebAPITask();
-        monitorAMRStatus();
         sleep(10);
     }
 }
