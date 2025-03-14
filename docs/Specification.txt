@@ -106,11 +106,11 @@ AMRタスク実行・監視システム ー仕様書ー
     AMR状態：
     battery_value = 8％（非常に低い）
     workStatus = 1、abnormalStatus = 1（正常な稼働状態だが、充電が必要）
-    システムはSMART_CHARGE設定（mustChargeBatteryValue: 10％、canChargeBatteryValue: 45％など）に基づき、充電状態として待機する
-    一定期間後、AMRのバッテリー残量が45％以上に上昇したと仮定
+    システムはSMART_CHARGE設定（mustChargeBatteryValue: 10％、canChargeBatteryValue: 30％など）に基づき、充電状態として待機する
+    一定期間後、AMRのバッテリー残量が30％以上に上昇したと仮定
     期待結果：
     タスク実行前に「Battery low」と表示され、充電完了までループで待機
-    バッテリー残量が45％以上になった後、「Battery charged」と表示され、タスク実行（MissionWorks API呼び出し）が開始される
+    バッテリー残量が30％以上になった後、「Battery charged」と表示され、タスク実行（MissionWorks API呼び出し）が開始される
     その後、コールバックが「Success」を返せばタスク完了とする
 
     テストケース３：異常状態でタスクが一時停止される場合

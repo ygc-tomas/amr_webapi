@@ -94,7 +94,7 @@ function setSmartChargeOff() {
     $payload = [
         "id" => "smart_charge_common",
         "type" => "SMART_CHARGE",
-        "parameter" => "{\"isEnable\":1,\"mustChargeBatteryValue\":20,\"canChargeBatteryValue\":45,\"minChargeTime\":300,\"freeTime\":\"0\",\"chargePlan\":1,\"chargeTime\":\"\",\"interruptBatteryValue\":20,\"chargeMode\":1,\"chargeMarkerId\":\"\",\"retryTime\":3}",
+        "parameter" => "{\"isEnable\":1,\"mustChargeBatteryValue\":20,\"canChargeBatteryValue\":30,\"minChargeTime\":300,\"freeTime\":\"0\",\"chargePlan\":1,\"chargeTime\":\"\",\"interruptBatteryValue\":20,\"chargeMode\":1,\"chargeMarkerId\":\"\",\"retryTime\":3}",
         "createTime" => "",
         "updateTime" => ""
     ];
@@ -114,7 +114,7 @@ function setSmartChargeOn() {
     $payload = [
         "id" => "smart_charge_common",
         "type" => "SMART_CHARGE",
-        "parameter" => "{\"isEnable\":0,\"mustChargeBatteryValue\":20,\"canChargeBatteryValue\":45,\"minChargeTime\":300,\"freeTime\":\"0\",\"chargePlan\":1,\"chargeTime\":\"\",\"interruptBatteryValue\":20,\"chargeMode\":1,\"chargeMarkerId\":\"\",\"retryTime\":3}",
+        "parameter" => "{\"isEnable\":0,\"mustChargeBatteryValue\":20,\"canChargeBatteryValue\":30,\"minChargeTime\":300,\"freeTime\":\"0\",\"chargePlan\":1,\"chargeTime\":\"\",\"interruptBatteryValue\":20,\"chargeMode\":1,\"chargeMarkerId\":\"\",\"retryTime\":3}",
         "createTime" => "",
         "updateTime" => ""
     ];
