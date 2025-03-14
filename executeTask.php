@@ -4,7 +4,8 @@ set_time_limit(0); // No timeout
 // Define the base URL for the YOUICOMPASS installed server
 // Production Env
 define('SERVER_URL', 'http://192.168.51.51:8080');
-// (For development, you might use a mock server URL)
+// For development, you can use a mock server URL
+// define('SERVER_URL', 'https://3aca9239-01d0-43b9-80ca-97bb21637841.mock.pstmn.io');
 
 //-------------------------------------------------
 // Database connection
@@ -107,7 +108,6 @@ function setSmartChargeOff() {
     ]);
     return file_get_contents($url, false, $context);
 }
-
 //-------------------------------------------------
 // Smart Charge control (off) API calls
 //-------------------------------------------------
@@ -183,7 +183,6 @@ function sendMissionWorksRequest($missionId, $missionCode, $runtimeParam, $callb
 // Get callback response via GET from callback.php using runtime id
 //-------------------------------------------------
 function getCallbackResponse($runtimeId) {
-    // Change parameter to runtimeId so that callback search is based on runtime id
     $url = "http://192.168.51.41:8080/api/callback/callback.php?runtimeId=" . urlencode($runtimeId);
     $response = file_get_contents($url);
     
@@ -287,17 +286,6 @@ function updateTaskStatus($missionId, $status) {
 //-------------------------------------------------
 // Task control API calls using runtime id
 //-------------------------------------------------
-function continueTaskAPI($runtimeId) {
-    $apiUrl = SERVER_URL . "/api/v3/missionWorks/" . urlencode($runtimeId) . "/controls/continue";
-    $context = stream_context_create([
-        "http" => [
-            "method" => "POST",
-            "header" => "Content-Type: application/json"
-        ]
-    ]);
-    return file_get_contents($apiUrl, false, $context);
-}
- 
 function resumeTaskAPI($runtimeId) {
     $apiUrl = SERVER_URL . "/api/v3/missionWorks/" . urlencode($runtimeId) . "/controls/resume";
     $context = stream_context_create([
@@ -321,171 +309,173 @@ function pauseTaskAPI($runtimeId) {
 }
  
 //-------------------------------------------------
-// Global mapping of mission id to runtime id
+// Global mapping of mission id to runtime id (in memory)
 //-------------------------------------------------
-$runtimeMapping = []; // Global associative array: missionId => runtimeId
+$runtimeMapping = array();
  
 //-------------------------------------------------
 // Task execution process
 //-------------------------------------------------
 function executeWebAPITask() {
-  while(true){
     global $runtimeMapping;
     
-    $pendingTask = getPendingTask();
-    if (!$pendingTask) {
-        echo "No pending tasks found<br>\n";
-        return;
-    }
- 
-    $missionId = $pendingTask;
-    $callbackUrl = "http://192.168.51.41:8080/api/callback/callback.php";
-    $startTime = date("Y-m-d H:i:s");
-    logTaskExecution($missionId, "STARTED", "Task execution started", [
-        "start_time" => $startTime,
-        "end_time" => null
-    ]);
- 
-    // Clear previous callback response
-    $clearResponseUrl = $callbackUrl . "?missionId=" . urlencode($missionId) . "&clear=1";
-    file_get_contents($clearResponseUrl);
- 
-    // Before executing the task, disable smart charge
-    setSmartChargeOff();
-    echo "Smart Charge turned OFF for task execution<br>\n";
- 
-    // Call MissionWorks API to start task and obtain runtime id
-    $missionCode = "";
-    $runtimeParam = ["marker1" => ""];
-    $runtimeIdData = sendMissionWorksRequest($missionId, $missionCode, $runtimeParam, $callbackUrl);
-    if (!$runtimeIdData || empty($runtimeIdData["runtimeId"])) {
-        error_log("Failed to obtain runtimeId from MissionWorks response");
-        echo "Error: Unable to obtain runtimeId<br>\n";
-        continue;
-    }
-    $runtimeId = $runtimeIdData["runtimeId"];
-    // Store runtime id in global mapping
-    $runtimeMapping[$missionId] = $runtimeId;
-    echo "Received runtimeId " . $runtimeId . " from MissionWorks API<br>\n";
- 
-    $maxAttempts = 10;
-    $attempts = 0;
-    $taskCompleted = false;
- 
-    while ($attempts < $maxAttempts && !$taskCompleted) {
-        $attempts++;
-        sleep(10); // Wait 10 seconds
- 
-        // Retrieve callback response using runtime id
-        $callbackResponse = getCallbackResponse($runtimeId);
-        error_log("Callback response for runtimeId $runtimeId: " . $callbackResponse);
-        if ($callbackResponse !== null) {
-            if (strcasecmp($callbackResponse, "Success") === 0) {
-                echo "Callback Status: " . $callbackResponse . "<br>\n";
-                updateTaskStatus($missionId, "COMPLETED");
-                logTaskExecution($missionId, "COMPLETED", "Task completed", [
-                    "start_time" => $startTime,
-                    "end_time" => date("Y-m-d H:i:s")
-                ]);
-                echo "Task completed<br>\n";
-                $taskCompleted = true;
-                break;
+    while (true) {
+        $pendingTask = getPendingTask();
+        if (!$pendingTask) {
+            echo "No pending tasks found<br>\n";
+            sleep(10);
+            continue;
+        }
+    
+        $missionId = $pendingTask;
+        $callbackUrl = "http://192.168.51.41:8080/api/callback/callback.php";
+        $startTime = date("Y-m-d H:i:s");
+        logTaskExecution($missionId, "STARTED", "Task execution started", [
+            "start_time" => $startTime,
+            "end_time" => null
+        ]);
+    
+        // Clear previous callback response
+        $clearResponseUrl = $callbackUrl . "?missionId=" . urlencode($missionId) . "&clear=1";
+        file_get_contents($clearResponseUrl);
+    
+        // Before executing the task, disable smart charge (turn OFF)
+        setSmartChargeOff();
+        echo "Smart Charge turned OFF for task execution<br>\n";
+    
+        // Call MissionWorks API to start task and obtain runtime id
+        $missionCode = "";
+        $runtimeParam = ["marker1" => ""];
+        $runtimeIdData = sendMissionWorksRequest($missionId, $missionCode, $runtimeParam, $callbackUrl);
+        if (!$runtimeIdData || empty($runtimeIdData["runtimeId"])) {
+            error_log("Failed to obtain runtimeId from MissionWorks response");
+            echo "Error: Unable to obtain runtimeId<br>\n";
+            continue;
+        }
+        $runtimeId = $runtimeIdData["runtimeId"];
+        // Store runtime id in global mapping
+        $runtimeMapping[$missionId] = $runtimeId;
+        echo "Received runtimeId " . $runtimeId . " from MissionWorks API<br>\n";
+    
+        $maxAttempts = 10;
+        $attempts = 0;
+        $taskCompleted = false;
+    
+        while ($attempts < $maxAttempts && $taskCompleted === false) {
+            $attempts++;
+            sleep(10); // Wait 10 seconds
+    
+            // Retrieve callback response using runtime id
+            $callbackResponse = getCallbackResponse($runtimeId);
+            error_log("Callback response for runtimeId $runtimeId: " . $callbackResponse);
+            if ($callbackResponse !== null) {
+                if (strcasecmp($callbackResponse, "Success") === 0) {
+                    echo "Callback Status: " . $callbackResponse . "<br>\n";
+                    updateTaskStatus($missionId, "COMPLETED");
+                    logTaskExecution($missionId, "COMPLETED", "Task completed", [
+                        "start_time" => $startTime,
+                        "end_time" => date("Y-m-d H:i:s")
+                    ]);
+                    echo "Task completed<br>\n";
+                    $taskCompleted = true;
+                    break;
+                } else {
+                    echo "Callback Status: " . $callbackResponse . " - Waiting for Success...<br>\n";
+                    logTaskExecution($missionId, "WAITING", "Waiting for Success. Current Callback Status: " . $callbackResponse, [
+                        "start_time" => $startTime,
+                        "end_time" => null
+                    ]);
+                }
             } else {
-                echo "Callback Status: " . $callbackResponse . " - Waiting for Success...<br>\n";
-                logTaskExecution($missionId, "WAITING", "Waiting for Success. Current Callback Status: " . $callbackResponse, [
+                echo "Attempt " . $attempts . " - No callback response received. Waiting...<br>\n";
+                logTaskExecution($missionId, "WAITING", "No callback response received. Attempt: " . $attempts, [
                     "start_time" => $startTime,
                     "end_time" => null
                 ]);
             }
-        } else {
-            echo "Attempt " . $attempts . " - No callback response received. Waiting...<br>\n";
-            logTaskExecution($missionId, "WAITING", "No callback response received. Attempt: " . $attempts, [
-                "start_time" => $startTime,
-                "end_time" => null
-            ]);
-        }
- 
-        // Get AMR status from vehicles API
-        $vehicleData = getVehicleStatus();
-        if ($vehicleData === null) {
-            $errorMsg = "Unable to obtain a valid response from the AMR real time inquiry";
-            logTaskExecution($missionId, "ERROR", $errorMsg, [
-                "error_code" => 1001,
-                "start_time" => $startTime,
-                "end_time" => date("Y-m-d H:i:s")
-            ]);
-            echo "Error: " . $errorMsg . "<br>\n";
-            break;
-        }
- 
-        $workStatus = $vehicleData["workStatus"];
-        $abnormalStatus = $vehicleData["abnormalStatus"];
-        $battery = $vehicleData["battery_value"];
- 
-        // Battery check using SMART_CHARGE logic
-        if ($battery !== null && $battery <= 10) {
-            echo "Battery low at " . $battery . "%. Initiating charge process...<br>\n";
-            $chargeConfig = getSmartChargeConfig();
-            if ($chargeConfig !== null) {
-                echo "SMART_CHARGE config retrieved: mustChargeBatteryValue " . $chargeConfig["mustChargeBatteryValue"] . ", canChargeBatteryValue " . $chargeConfig["canChargeBatteryValue"] . "<br>\n";
-                echo "Waiting for battery to charge until it reaches at least " . $chargeConfig["canChargeBatteryValue"] . "%...<br>\n";
-                while (true) {
-                    sleep(10);
-                    $vehicleData = getVehicleStatus();
-                    $battery = $vehicleData["battery_value"];
-                    if ($battery !== null && $battery >= $chargeConfig["canChargeBatteryValue"]) {
-                        echo "Battery charged to " . $battery . "%. Proceeding with task...<br>\n";
-                        break;
-                    } else {
-                        echo "Waiting for battery to charge. Current level: " . $battery . "%<br>\n";
+    
+            // Get AMR status from vehicles API
+            $vehicleData = getVehicleStatus();
+            if ($vehicleData === null) {
+                $errorMsg = "Unable to obtain a valid response from the AMR real time inquiry";
+                logTaskExecution($missionId, "ERROR", $errorMsg, [
+                    "error_code" => 1001,
+                    "start_time" => $startTime,
+                    "end_time" => date("Y-m-d H:i:s")
+                ]);
+                echo "Error: " . $errorMsg . "<br>\n";
+                break;
+            }
+    
+            $workStatus = $vehicleData["workStatus"];
+            $abnormalStatus = $vehicleData["abnormalStatus"];
+            $battery = $vehicleData["battery_value"];
+    
+            // Battery check: if battery level is 10% or below, wait until it is charged to at least 45% (SMART_CHARGE config)
+            if ($battery !== null && $battery <= 10) {
+                echo "Battery low at " . $battery . "%. Initiating charge process...<br>\n";
+                $chargeConfig = getSmartChargeConfig();
+                if ($chargeConfig !== null) {
+                    echo "SMART_CHARGE config retrieved: mustChargeBatteryValue " . $chargeConfig["mustChargeBatteryValue"] . ", canChargeBatteryValue " . $chargeConfig["canChargeBatteryValue"] . "<br>\n";
+                    echo "Waiting for battery to charge until it reaches at least " . $chargeConfig["canChargeBatteryValue"] . "%...<br>\n";
+                    while (true) {
+                        sleep(10);
+                        $vehicleData = getVehicleStatus();
+                        $battery = $vehicleData["battery_value"];
+                        if ($battery !== null && $battery >= $chargeConfig["canChargeBatteryValue"]) {
+                            echo "Battery charged to " . $battery . "%. Proceeding with task...<br>\n";
+                            break;
+                        } else {
+                            echo "Waiting for battery to charge. Current level: " . $battery . "%<br>\n";
+                        }
                     }
                 }
             }
+    
+            // Task control decision based on AMR status
+            if ($workStatus == 1 && $abnormalStatus == 1) {
+                echo "AMR available (workStatus: " . $workStatus . ", abnormalStatus: " . $abnormalStatus . ")<br>\n";
+                echo "Calling resumeTask API with runtime id " . $runtimeId . "<br>\n";
+                $continueResponse = resumeTaskAPI($runtimeId);
+                echo "resumeTaskAPI response: " . $continueResponse . "<br>\n";
+            } elseif ($workStatus == 3 || $abnormalStatus != 1) {
+                echo "AMR not available (workStatus: " . $workStatus . ", abnormalStatus: " . $abnormalStatus . ")<br>\n";
+                echo "Calling pauseTask API with runtime id " . $runtimeId . "<br>\n";
+                $pauseResponse = pauseTaskAPI($runtimeId);
+                echo "pauseTaskAPI response: " . $pauseResponse . "<br>\n";
+            }
         }
- 
-        // Task control decision based on AMR status
-        if ($workStatus == 1 && $abnormalStatus == 1) {
-            echo "AMR available (workStatus " . $workStatus . ", abnormalStatus " . $abnormalStatus . ")<br>\n";
-            echo "Calling continueTask API with runtime id " . $runtimeId . "<br>\n";
-            $continueResponse = resumeTaskAPI($runtimeId);
-            echo "continueTaskAPI response: " . $continueResponse . "<br>\n";
-        } elseif ($workStatus == 3 || $abnormalStatus != 1) {
-            echo "AMR not available (workStatus " . $workStatus . ", abnormalStatus " . $abnormalStatus . ")<br>\n";
-            echo "Calling pauseTask API with runtime id " . $runtimeId . "<br>\n";
-            $pauseResponse = pauseTaskAPI($runtimeId);
-            echo "pauseTaskAPI response: " . $pauseResponse . "<br>\n";
+    
+        if ($taskCompleted === false && $attempts >= $maxAttempts) {
+            updateTaskStatus($missionId, "MAX_ATTEMPTS_REACHED");
+            logTaskExecution($missionId, "MAX_ATTEMPTS_REACHED", "Reached maximum number of attempts: " . $maxAttempts, [
+                "error_code" => 1004,
+                "start_time" => $startTime,
+                "end_time" => date("Y-m-d H:i:s")
+            ]);
+            echo "Maximum number of attempts reached. Terminating process.<br>\n";
         }
-    }
- 
-    if ($taskCompleted == false && $attempts >= $maxAttempts) {
-        updateTaskStatus($missionId, "MAX_ATTEMPTS_REACHED");
-        logTaskExecution($missionId, "MAX_ATTEMPTS_REACHED", "Reached maximum number of attempts: " . $maxAttempts, [
-            "error_code" => 1004,
-            "start_time" => $startTime,
-            "end_time" => date("Y-m-d H:i:s")
-        ]);
-        echo "Maximum number of attempts reached. Terminating process.<br>\n";
-    }
- 
-    // After task completion, check battery level and if battery is 50% or below, enable smart charge
-    $vehicleData = getVehicleStatus();
-    if ($vehicleData !== null && isset($vehicleData["battery_value"])) {
-        $battery = $vehicleData["battery_value"];
-        if ($battery <= 50) {
-            echo "Battery is low at " . $battery . "%. Enabling Smart Charge...<br>\n";
-            setSmartChargeOn();
+    
+        // After task completion, check battery level and if battery is 50% or below, enable smart charge
+        $vehicleData = getVehicleStatus();
+        if ($vehicleData !== null && isset($vehicleData["battery_value"])) {
+            $battery = $vehicleData["battery_value"];
+            if ($battery <= 50) {
+                echo "Battery is low at " . $battery . "%. Enabling Smart Charge...<br>\n";
+                setSmartChargeOn();
+            }
         }
+    
+        // Loop back to execute next pending task
     }
-  }
 }
  
 //-------------------------------------------------
-// AMR status monitor process (runs concurrently if pcntl_fork available)
+// AMR status monitor process (runs concurrently if pcntl_fork is available)
 //-------------------------------------------------
 function monitorAMRStatus() {
     global $runtimeMapping;
     while (true) {
-        // Retrieve pending task from DB (mission_id)
         $missionId = getPendingTask();
         if (!$missionId) {
             echo "Monitor: No pending task.<br>\n";
@@ -493,11 +483,9 @@ function monitorAMRStatus() {
             continue;
         }
     
-        // Check if a runtime id exists for this task from global mapping
         if (isset($runtimeMapping[$missionId])) {
             $runtimeId = $runtimeMapping[$missionId];
         } else {
-            // If not yet executed, use mission id (but control APIs expect runtime id)
             echo "Monitor: Runtime id not available for mission " . $missionId . ".<br>\n";
             sleep(10);
             continue;
@@ -535,11 +523,11 @@ function monitorAMRStatus() {
             }
         }
     
-        // AMR status decision: if normal, call continueTask; if charging or abnormal, call pauseTask
+        // AMR status decision in monitor process
         if ($workStatus == 1 && $abnormalStatus == 1) {
-            echo "Monitor: AMR normal. Calling continueTask API for runtime id " . $runtimeId . "<br>\n";
-            $response = continueTaskAPI($runtimeId);
-            echo "Monitor: continueTaskAPI response: " . $response . "<br>\n";
+            echo "Monitor: AMR normal. Calling resumeTask API for runtime id " . $runtimeId . "<br>\n";
+            $response = resumeTaskAPI($runtimeId);
+            echo "Monitor: resumeTaskAPI response: " . $response . "<br>\n";
         } elseif ($workStatus == 3 || $abnormalStatus != 1) {
             echo "Monitor: AMR charging or abnormal. Calling pauseTask API for runtime id " . $runtimeId . "<br>\n";
             $response = pauseTaskAPI($runtimeId);
@@ -561,11 +549,9 @@ if (function_exists("pcntl_fork")) {
     if ($pid == -1) {
         die("Could not fork");
     } else if ($pid == 0) {
-        // Child process: Monitor AMR status
         monitorAMRStatus();
         exit(0);
     } else {
-        // Parent process: Execute task(s)
         executeWebAPITask();
     }
 } else {
