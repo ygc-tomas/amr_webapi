@@ -361,7 +361,7 @@ function executeWebAPITask() {
     if (!$runtimeIdData || empty($runtimeIdData["runtimeId"])) {
         error_log("Failed to obtain runtimeId from MissionWorks response");
         echo "Error: Unable to obtain runtimeId<br>\n";
-        return;
+        continue;
     }
     $runtimeId = $runtimeIdData["runtimeId"];
     // Store runtime id in global mapping
@@ -447,7 +447,7 @@ function executeWebAPITask() {
         if ($workStatus == 1 && $abnormalStatus == 1) {
             echo "AMR available (workStatus " . $workStatus . ", abnormalStatus " . $abnormalStatus . ")<br>\n";
             echo "Calling continueTask API with runtime id " . $runtimeId . "<br>\n";
-            $continueResponse = continueTaskAPI($runtimeId);
+            $continueResponse = resumeTaskAPI($runtimeId);
             echo "continueTaskAPI response: " . $continueResponse . "<br>\n";
         } elseif ($workStatus == 3 || $abnormalStatus != 1) {
             echo "AMR not available (workStatus " . $workStatus . ", abnormalStatus " . $abnormalStatus . ")<br>\n";
