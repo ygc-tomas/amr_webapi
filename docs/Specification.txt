@@ -1,0 +1,153 @@
+AMRタスク実行・監視システム ー仕様書ー
+
+-この資料は、AMRの状態監視、タスク実行、および充電待機・再開の全体ロジックを網羅し、
+ 現場での運用手順、API仕様、エラーハンドリング、セキュリティ、運用管理の各ポイントを詳述しています。
+
+1. システム概要
+    ＜目的＞
+    本システムは、AMR（自律走行ロボット）のリアルタイム状態（作業状況、異常状態、バッテリー残量）を監視し、
+    タスク実行・充電状態に応じたタスク制御を自動で行うものです。
+    タスクは、DBに登録された mission_id をもとに MissionWorks API を介して実行され、
+    タスクごとに生成される runtime_id を用いて制御されます。
+
+    ＜システム構成＞
+    ・AMR（自律走行ロボット）
+    →現在の状態（workStatus, abnormalStatus, battery_value）を Vehicles API を通じて送信
+
+    ・制御サーバー
+    →Web APIタスクの実行・監視を行い、AMRの状態を管理
+
+    ・データベース（DB）
+    →未完了タスクを管理（task_list テーブル）
+    →タスク実行ログを記録（task_logs テーブル）
+
+    ＜主要API＞
+    ・AMR実行状況照会API
+    http://[ipaddress]:8080/api/v3/vehicles
+    取得情報: workStatus, abnormalStatus, battery_value
+
+    ・タスク実行API（MissionWorks）
+    http://[ipaddress]:8080/api/v3/missionWorks
+    mission_id を引数にタスク実行リクエストを送信、runtime_id を受け取り、その後のタスク制御で利用
+
+    ・タスク状態取得API（コールバック） 
+    http://[ipaddress]:8080/api/callback/callback.php
+    こちらは私が作成した自作APIです。callback.phpではAMRからのレスポンスを受信するモジュールであり、そのモジュールに対してruntime_idを渡し、コールバックレスポンス（タスクの実行状況）を取得しています。
+
+    ・充電管理API（SMART_CHARGE）
+    http://[ipaddress]:8080/api/v3/agvFunctionConfigs
+    SMART_CHARGE 設定を取得・変更
+
+    ・タスク制御API
+    タスク再開（resume）：http://[ipaddress]:8080/api/v3/missionWorks/[runtime_id]/controls/resume
+    タスク一時停止（pause）：http://[ipaddress]:8080/api/v3/missionWorks/[runtime_id]/controls/pause
+
+2. タスク実行・制御のワークフロー
+    ＜タスクの開始＞
+    DBを確認し、未完了タスク（mission_id）を取得
+    MissionWorks API に mission_id を渡し、タスクを開始
+    APIから runtime_id を取得
+    runtime_id は、タスク制御のために使用
+    コールバックAPIでタスクの実行状態を監視
+    runtime_id を用いて、定期的にステータスを取得
+    Status = SUCCESS なら、DBを更新（タスク完了）
+    Status ≠ SUCCESS なら、タスクが完了するまで監視を継続
+
+    ＜AMR状態の監視＞
+    AMRの現在の状態を取得（Vehicles API）
+    AMRの状態に応じて制御
+    ・正常（workStatus = 1, abnormalStatus = 1）
+    →タスク再開（resume API を runtime_id で呼び出し）
+
+    ・充電中 / 異常（workStatus = 3 または abnormalStatus ≠ 1）
+    →タスク一時停止（pause API を runtime_id で呼び出し）
+
+    バッテリー監視と充電待機
+    ・バッテリー残量が10％以下の場合
+    →SMART_CHARGE 設定を取得し、バッテリーが30％以上になるまで待機
+    ・バッテリーが30％以上になったら
+    →resume API を使用してタスクを再開
+
+3. 運用手順とエラーハンドリング
+    想定されるエラーと対策
+    エラー内容	原因	対応策
+    API 500 Server Error　→　サーバー負荷、認証エラー　→　APIのログを確認、ネットワーク設定をチェック
+    JSON Decode Error　→　APIレスポンスの異常　→　APIレスポンスのログを記録し、エラーハンドリングを強化
+    AMR status not available　→　AMRがオフライン　→　ネットワーク状態を確認、再起動を試行
+
+    ＜トラブルシューティング手順＞
+    ・APIのエラーログを確認
+    →logs/error.log に記録されているエラーコードをチェック
+
+    ・DBのタスク情報を確認
+    →SELECT * FROM task_list WHERE status != 'COMPLETED';
+
+    ・AMRの状態を手動でAPIを入力し確認
+    http://[ipaddress]:8080/api/v3/vehicles を手動でGET
+
+    ＜テストケースと期待値＞
+    以下は、実際のAMRのバッテリー残量やタスク実行状況（workStatus、abnormalStatus）を想定したテストケースの例と、それに基づくシミュレーション結果の期待値一覧です。
+    ※なお、以下のテストケースはサンプルシナリオとなり、実環境のレスポンスに合わせてパラメータや条件を調整する必要があります。
+
+    テストケース１：正常状態でタスクが正常に完了する場合
+    シナリオ：
+    AMR状態：
+    workStatus = 1（空いている）
+    abnormalStatus = 1（正常）
+    battery_value = 80％（十分な電池残量）
+    MissionWorks API呼び出し後、コールバックは最初「Running」状態を返し、その後「Success」に変化する
+    期待結果：
+    MissionWorks APIでランタイムIDが取得される
+    コールバックレスポンスが「Success」となった時点で、タスクは完了とマークされ、DBのステータスが「COMPLETED」に更新される
+    充電処理は発生せず、タスクはそのまま実行される
+
+    テストケース２：バッテリー残量が低下して充電待機となる場合
+    シナリオ：
+    AMR状態：
+    battery_value = 8％（非常に低い）
+    workStatus = 1、abnormalStatus = 1（正常な稼働状態だが、充電が必要）
+    システムはSMART_CHARGE設定（mustChargeBatteryValue: 10％、canChargeBatteryValue: 45％など）に基づき、充電状態として待機する
+    一定期間後、AMRのバッテリー残量が45％以上に上昇したと仮定
+    期待結果：
+    タスク実行前に「Battery low」と表示され、充電完了までループで待機
+    バッテリー残量が45％以上になった後、「Battery charged」と表示され、タスク実行（MissionWorks API呼び出し）が開始される
+    その後、コールバックが「Success」を返せばタスク完了とする
+
+    テストケース３：異常状態でタスクが一時停止される場合
+    シナリオ：
+    AMR状態：
+    workStatus = 1（空いている）
+    abnormalStatus ≠ 1（例：2＝タスク異常など）
+    battery_value = 70％（十分な電池残量）
+    MissionWorks API呼び出し後、コールバックは「Running」や「Fault」などが返され、タスクが完了せず、一時停止状態となる
+    期待結果：
+    AMRの状態が異常であるため、システムはタスク制御APIの pauseTask（または場合によって resumeTask）を呼び出す
+    DBのタスクステータスは「WAITING」や「PAUSE」として記録され、タスクは完了せずに保留状態となる
+
+    テストケース４：充電中（workStatus = 3）の場合
+    シナリオ：
+    AMR状態：
+    workStatus = 3（充電中）
+    abnormalStatus は（正常な値として1）
+    battery_value = 20％（低いが充電中のため、タスク実行は待機する）
+    期待結果：
+    AMRが充電中のため、システムはタスク制御APIの pauseTask を呼び出す
+    充電中はタスク実行が保留され、タスク進捗が記録される
+    充電が完了してバッテリーが30％以上に上昇した場合、システムがタスク実行を再開する
+
+4．タスク実行プロセス概要
+
+    DBから未完了のタスク（mission id）を取得し、MissionWorks API を呼び出してタスク実行を開始。
+    その際、レスポンスから生成されたランタイムIDを取得してグローバルマッピングに登録。
+    既存のコールバックレスポンスをクリアし、Smart Charge を無効（OFF）にしてタスク実行を開始。
+    その後、一定間隔でコールバックレスポンス（ランタイムIDをキー）を確認し、"Success" になったらタスクを完了とする。
+    AMR状態監視プロセス
+
+    並行してAMRの状態を常時監視。
+    バッテリー残量が低い場合はSMART_CHARGEの設定を取得し、充電完了（設定値以上）まで待機。
+    AMRが正常（workStatus が1、abnormalStatus が1）の場合はタスク再開API（resumeTask）を呼び、充電中または異常の場合はタスク一時停止API（pauseTask）を呼ぶ。
+    タスク完了後
+
+    タスクが完了した後、再度AMRのバッテリー残量を確認し、低い場合はSMART_CHARGEを有効（ON）にして充電処理を促す。
+    全体のループが続くため、新たにDBにタスクが登録された場合は、再び処理が開始される。
+    このソースコードと別途フローチャートは、すべてのタスクが完了しても常にDBを監視し、新しいタスクが追加された場合に自動的に実行されるように設計されています。また、バッテリー残量に応じた充電待機とタスク制御（再開・一時停止）のロジックも含まれています。

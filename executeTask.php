@@ -1,10 +1,10 @@
 <?php
-set_time_limit(0); // No timeout
+set_time_limit(0); // タイムアウトなし
 
 // Define the base URL for the YOUICOMPASS installed server
 // Production Env
 define('SERVER_URL', 'http://192.168.51.51:8080');
-// For development, you can use a mock server URL
+// For development, you may use a mock server URL
 // define('SERVER_URL', 'https://3aca9239-01d0-43b9-80ca-97bb21637841.mock.pstmn.io');
 
 //-------------------------------------------------
@@ -108,9 +108,7 @@ function setSmartChargeOff() {
     ]);
     return file_get_contents($url, false, $context);
 }
-//-------------------------------------------------
-// Smart Charge control (off) API calls
-//-------------------------------------------------
+
 function setSmartChargeOn() {
     $url = SERVER_URL . "/api/v3/agvFunctionConfigs/smart_charge_common";
     $payload = [
@@ -314,7 +312,7 @@ function pauseTaskAPI($runtimeId) {
 $runtimeMapping = array();
  
 //-------------------------------------------------
-// Task execution process
+// Task execution process (continuously process pending tasks)
 //-------------------------------------------------
 function executeWebAPITask() {
     global $runtimeMapping;
@@ -339,7 +337,7 @@ function executeWebAPITask() {
         $clearResponseUrl = $callbackUrl . "?missionId=" . urlencode($missionId) . "&clear=1";
         file_get_contents($clearResponseUrl);
     
-        // Before executing the task, disable smart charge (turn OFF)
+        // Disable Smart Charge for task execution
         setSmartChargeOff();
         echo "Smart Charge turned OFF for task execution<br>\n";
     
@@ -411,12 +409,12 @@ function executeWebAPITask() {
             $abnormalStatus = $vehicleData["abnormalStatus"];
             $battery = $vehicleData["battery_value"];
     
-            // Battery check: if battery level is 10% or below, wait until it is charged to at least 45% (SMART_CHARGE config)
+            // Battery check: if battery <= 10, wait until charged to at least the canChargeBatteryValue
             if ($battery !== null && $battery <= 10) {
                 echo "Battery low at " . $battery . "%. Initiating charge process...<br>\n";
                 $chargeConfig = getSmartChargeConfig();
                 if ($chargeConfig !== null) {
-                    echo "SMART_CHARGE config retrieved: mustChargeBatteryValue " . $chargeConfig["mustChargeBatteryValue"] . ", canChargeBatteryValue " . $chargeConfig["canChargeBatteryValue"] . "<br>\n";
+                    echo "SMART_CHARGE config: mustChargeBatteryValue " . $chargeConfig["mustChargeBatteryValue"] . ", canChargeBatteryValue " . $chargeConfig["canChargeBatteryValue"] . "<br>\n";
                     echo "Waiting for battery to charge until it reaches at least " . $chargeConfig["canChargeBatteryValue"] . "%...<br>\n";
                     while (true) {
                         sleep(10);
@@ -436,13 +434,13 @@ function executeWebAPITask() {
             if ($workStatus == 1 && $abnormalStatus == 1) {
                 echo "AMR available (workStatus: " . $workStatus . ", abnormalStatus: " . $abnormalStatus . ")<br>\n";
                 echo "Calling resumeTask API with runtime id " . $runtimeId . "<br>\n";
-                $continueResponse = resumeTaskAPI($runtimeId);
-                echo "resumeTaskAPI response: " . $continueResponse . "<br>\n";
+                $response = resumeTaskAPI($runtimeId);
+                echo "resumeTaskAPI response: " . $response . "<br>\n";
             } elseif ($workStatus == 3 || $abnormalStatus != 1) {
                 echo "AMR not available (workStatus: " . $workStatus . ", abnormalStatus: " . $abnormalStatus . ")<br>\n";
                 echo "Calling pauseTask API with runtime id " . $runtimeId . "<br>\n";
-                $pauseResponse = pauseTaskAPI($runtimeId);
-                echo "pauseTaskAPI response: " . $pauseResponse . "<br>\n";
+                $response = pauseTaskAPI($runtimeId);
+                echo "pauseTaskAPI response: " . $response . "<br>\n";
             }
         }
     
@@ -466,7 +464,7 @@ function executeWebAPITask() {
             }
         }
     
-        // Loop back to execute next pending task
+        // Continue loop to check for new pending tasks
     }
 }
  
@@ -549,9 +547,11 @@ if (function_exists("pcntl_fork")) {
     if ($pid == -1) {
         die("Could not fork");
     } else if ($pid == 0) {
+        // Child process: Monitor AMR status
         monitorAMRStatus();
         exit(0);
     } else {
+        // Parent process: Execute tasks continuously
         executeWebAPITask();
     }
 } else {
