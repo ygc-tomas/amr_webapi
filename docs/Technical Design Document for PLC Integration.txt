@@ -1,0 +1,241 @@
+Technical Design Document for PLC Integration (C Implementation)
+1. Overview
+This document provides guidance for engineers developing the PLC component in C for integrating HMI inputs, server communication, and AMR control. 
+
+2. System Architecture
+・HMI (Human-Machine Interface):
+    Operators input task commands (e.g., start task from point A to B, stop task, or initiate charging).
+
+・PLC (Programmable Logic Controller) – C Implementation:
+    Receives commands from the HMI.
+    Inserts tasks into the task_list database.
+    Monitors AMR status (battery level, workStatus, abnormalStatus) by querying either the AMR API or a status database.
+    Decides when to start (resume) or stop (pause) the AMR based on predefined conditions.
+    Communicates with the server (via DB updates or API calls) for executing AMR instructions.
+
+・Server (PHP + DB + WebAPI):
+    Continuously monitors task_list for pending tasks.
+    Uses the MissionWorks API to send instructions (start, pause, resume, charge) to the AMR.
+    Updates task statuses based on API responses and AMR callback messages.
+
+・AMR (Autonomous Mobile Robot):
+    Executes tasks (e.g., pickup at point A and drop-off at point B).
+    Provides status data (battery_value, workStatus, abnormalStatus, etc.) via its API.
+    Responds to commands such as start/resume, pause/stop, or charge.
+
+3. Integration Flow
+3.1 Task Registration and Execution
+<Task Addition>
+HMI: Operator inputs a task (e.g., move from point A to B).
+PLC: Receives input and inserts a new record into the task_list database with mission_id.
+
+<Task Initiation>
+Server: Monitors task_list for pending tasks and, upon detection, calls the MissionWorks API to start the task.
+API Response: Returns a runtime ID, and the server updates the task status to RUNNING.
+PLC: Starts periodic monitoring of AMR status while the task is running.
+
+3.2 AMR Start/Stop Conditions
+The PLC monitors the following AMR status parameters to determine the appropriate action:
+
+<Start/Resume Conditions>
+    <Normal Operation>
+    workStatus equals 1 (indicating the AMR is idle/ready).
+    abnormalStatus equals 1 (indicating no abnormalities).
+    Battery level is above a low threshold (e.g., > 10%).
+    <Action>
+    If all conditions are met, the PLC (or server) issues a resumeTask command via the API.
+
+<Stop/Pause Conditions>
+    <Low Battery>
+    Battery level is at or below 10%.
+    Action: Issue a pauseTask command to prevent operation and start charging.
+    Abnormal State:
+    abnormalStatus is not 1.
+    <Action> 
+    Issue a pauseTask command and optionally trigger recovery procedures (e.g., using oneKeyReset API).
+
+<Task Completion>
+    When a successful callback (“Success”) is received, the task is marked as completed.
+    If the battery remains low (≤ 50%), the system enters a charging promotion mode before returning to idle.
+
+3.3 Charging Control
+<Charging Initiation>
+When battery level falls to 10% or below, the system pauses the task and transitions to a charging state.
+
+<Charging Resumption>
+Once the battery level reaches the charge threshold (e.g., ≥ 30%), a resumeTask command is sent to continue task execution.
+
+4. PLC Side Implementation in C
+Below are sample C code snippets illustrating key functions for integration. These include HMI input processing, task registration, AMR status monitoring, and condition-based AMR control.
+
+4.1 HMI Input and Task Registration (Operator sends task to PLC from HMI and register DB)
+----------C#--------------
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <mysql/mysql.h>
+
+#define DB_HOST "192.168.51.51"
+#define DB_USER "plc_user"
+#define DB_PASS "plc_password"
+#define DB_NAME "amr_task_db"
+
+// Structure representing a task
+typedef struct {
+    char mission_id[20];
+    char source[10];
+    char destination[10];
+    int status; // 0: PENDING, 1: RUNNING, 2: PAUSED, 3: COMPLETED
+} Mission;
+
+// Insert task into the database
+int add_task_to_db(Mission *task) {
+    MYSQL *conn = mysql_init(NULL);
+    if (!mysql_real_connect(conn, DB_HOST, DB_USER, DB_PASS, DB_NAME, 0, NULL, 0)) {
+        printf("DB Connection Error: %s\n", mysql_error(conn));
+        return -1;
+    }
+    char query[256];
+    sprintf(query, "INSERT INTO task_list (mission_id, status, source_point, destination_point, created_at) "
+                   "VALUES ('%s', %d, '%s', '%s', NOW())",
+                   task->mission_id, task->status, task->source, task->destination);
+    if (mysql_query(conn, query)) {
+        printf("DB Insert Error: %s\n", mysql_error(conn));
+        mysql_close(conn);
+        return -1;
+    }
+    mysql_close(conn);
+    printf("Task Added: %s\n", task->mission_id);
+    return 0;
+}
+
+// Receive HMI input and register a new task
+void receive_hmi_input() {
+    Mission task;
+    printf("Enter Mission ID: ");
+    scanf("%s", task.mission_id);
+    printf("Enter Source Point: ");
+    scanf("%s", task.source);
+    printf("Enter Destination Point: ");
+    scanf("%s", task.destination);
+    task.status = 0; // Set as PENDING
+    add_task_to_db(&task);
+}
+
+int main() {
+    while (1) {
+        printf("Waiting for HMI Input...\n");
+        receive_hmi_input();
+        sleep(5); // Poll every 5 seconds
+    }
+    return 0;
+}
+----------C#--------------
+
+4.2 AMR Status Monitoring and Conditional AMR Control (Operator send control command to AMR on HMI)
+----------C#--------------#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <mysql/mysql.h>
+
+// Function to check AMR status from the database (or directly via API)
+void check_amr_status() {
+    MYSQL *conn = mysql_init(NULL);
+    if (!mysql_real_connect(conn, DB_HOST, DB_USER, DB_PASS, DB_NAME, 0, NULL, 0)) {
+        printf("DB Connection Error: %s\n", mysql_error(conn));
+        return;
+    }
+    if (mysql_query(conn, "SELECT battery_value, workStatus, abnormalStatus FROM amr_status ORDER BY updated_at DESC LIMIT 1")) {
+        printf("DB Query Error: %s\n", mysql_error(conn));
+        mysql_close(conn);
+        return;
+    }
+    MYSQL_RES *res = mysql_store_result(conn);
+    MYSQL_ROW row = mysql_fetch_row(res);
+    if (row) {
+        int battery = atoi(row[0]);
+        int workStatus = atoi(row[1]);
+        int abnormalStatus = atoi(row[2]);
+
+        printf("Battery: %d%%, WorkStatus: %d, AbnormalStatus: %d\n", battery, workStatus, abnormalStatus);
+
+        // Conditions for AMR control:
+        if (battery <= 10) {
+            printf("Battery is critically low. Issuing pause command and initiating charging.\n");
+            // Call external command/script for charging if needed
+            system("python3 send_charge_request.py");
+        } else if (workStatus == 1 && abnormalStatus == 1) {
+            // Normal conditions: AMR can be commanded to start/resume
+            printf("AMR is ready. Sending resume command.\n");
+            system("curl -X POST http://192.168.51.51:8080/api/v3/missionWorks/<runtimeId>/controls/resume");
+        } else if (abnormalStatus != 1) {
+            // Abnormal condition detected: send pause and recovery command
+            printf("AMR abnormal detected. Sending pause command and initiating recovery.\n");
+            system("curl -X POST http://192.168.51.51:8080/api/v3/missionWorks/<runtimeId>/controls/pause");
+            system("curl -X POST http://192.168.51.51:8080/api/v3/vehicles/task/oneKeyReset");
+        }
+    }
+    mysql_free_result(res);
+    mysql_close(conn);
+}
+
+int main() {
+    while (1) {
+        printf("Monitoring AMR Status...\n");
+        check_amr_status();
+        sleep(10); // Monitor every 10 seconds
+    }
+    return 0;
+}
+----------C#--------------
+
+4.3 Task Stop Handling (Update Task Status to PAUSED)
+----------C#--------------
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <mysql/mysql.h>
+
+void pause_task(const char *mission_id) {
+    MYSQL *conn = mysql_init(NULL);
+    if (!mysql_real_connect(conn, DB_HOST, DB_USER, DB_PASS, DB_NAME, 0, NULL, 0)) {
+        printf("DB Connection Error: %s\n", mysql_error(conn));
+        return;
+    }
+    char query[128];
+    sprintf(query, "UPDATE task_list SET status = 'PAUSED' WHERE mission_id = '%s'", mission_id);
+    if (mysql_query(conn, query)) {
+        printf("DB Update Error: %s\n", mysql_error(conn));
+    } else {
+        printf("Task %s Paused\n", mission_id);
+    }
+    mysql_close(conn);
+}
+
+int main() {
+    char mission_id[20];
+    printf("Enter Mission ID to Pause: ");
+    scanf("%s", mission_id);
+    pause_task(mission_id);
+    return 0;
+}
+----------C#--------------
+5. Integration Summary
+HMI to PLC:
+Operators input tasks via the HMI, and the PLC (implemented in C) receives these inputs, registering tasks in the task_list database.
+
+PLC to Server:
+The server continuously polls the database for pending tasks, initiates task execution via the MissionWorks API, and updates task statuses (RUNNING, PAUSED, COMPLETED).
+
+PLC AMR Control:
+The PLC periodically monitors AMR status (battery level, workStatus, abnormalStatus).
+
+If conditions for starting or resuming the task are met (e.g., battery > 10%, workStatus = 1, abnormalStatus = 1), the PLC or server sends a resume command.
+If the battery is low (≤ 10%) or an abnormal state is detected, the PLC sends a pause command and, if necessary, triggers a recovery process.
+Feedback Loop:
+The PLC updates the DB and provides status feedback (via logs or communication to the HMI), ensuring the operator is informed about task execution, pauses, and charging events.
+
+6. Conclusion
+This technical design document illustrates how to implement the PLC-side control in C. By integrating HMI inputs, task registration, and continuous AMR status monitoring, the PLC can issue precise start and stop commands to the AMR based on its real-time status. This integrated system ensures synchronized control across HMI, PLC, server, and AMR, addressing issues like synchronization delays and abnormal conditions effectively.
+
