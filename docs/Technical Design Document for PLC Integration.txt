@@ -221,21 +221,3 @@ int main() {
     return 0;
 }
 ----------C#--------------
-5. Integration Summary
-HMI to PLC:
-Operators input tasks via the HMI, and the PLC (implemented in C) receives these inputs, registering tasks in the task_list database.
-
-PLC to Server:
-The server continuously polls the database for pending tasks, initiates task execution via the MissionWorks API, and updates task statuses (RUNNING, PAUSED, COMPLETED).
-
-PLC AMR Control:
-The PLC periodically monitors AMR status (battery level, workStatus, abnormalStatus).
-
-If conditions for starting or resuming the task are met (e.g., battery > 10%, workStatus = 1, abnormalStatus = 1), the PLC or server sends a resume command.
-If the battery is low (≤ 10%) or an abnormal state is detected, the PLC sends a pause command and, if necessary, triggers a recovery process.
-Feedback Loop:
-The PLC updates the DB and provides status feedback (via logs or communication to the HMI), ensuring the operator is informed about task execution, pauses, and charging events.
-
-6. Conclusion
-This technical design document illustrates how to implement the PLC-side control in C. By integrating HMI inputs, task registration, and continuous AMR status monitoring, the PLC can issue precise start and stop commands to the AMR based on its real-time status. This integrated system ensures synchronized control across HMI, PLC, server, and AMR, addressing issues like synchronization delays and abnormal conditions effectively.
-
