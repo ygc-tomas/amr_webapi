@@ -109,7 +109,7 @@ int add_task_to_db(Mission *task) {
     printf("Task Added: %s\n", task->mission_id);
     return 0;
 }
-
+ｄ
 // Receive HMI input and register a new task
 void receive_hmi_input() {
     Mission task;
@@ -221,3 +221,131 @@ int main() {
     return 0;
 }
 ----------C#--------------
+
+
+5. Communication Using Modbus
+The PLC communicates with both the HMI and the server using the Modbus protocol. The system uses Modbus TCP/IP between the PLC and the server, while Modbus RTU can be used between the PLC and HMI.
+
+Register	Function	Description	Range
+40001	Task Command	0=Idle, 1=Start, 2=Pause, 3=Charge	0-3
+40002	Mission ID	Task identifier	0-65535
+40003	Source Point	Pickup location	0-255
+40004	Destination Point	Drop-off location	0-255
+40005	Task Status	0=PENDING, 1=RUNNING, 2=PAUSED, 3=COMPLETED	0-3
+40006	Battery Level	AMR battery percentage	0-100
+40007	AMR Work Status	1=Idle, 2=Running, 3=Charging	1-3
+40008	AMR Abnormal Status	0=Normal, 1=Error	0-1
+
+6. Task Execution and Control Flow
+6.1 Task Registration
+HMI Input:
+
+Operator enters a task (e.g., move from A to B).
+Task command (40001 = 1), mission ID, and destination details are written to the Modbus registers.
+PLC Processing:
+
+The PLC detects a new task command (40001 = 1) and logs the task in the task_list database.
+The PLC updates the Modbus register (40005) to PENDING.
+The server reads the task data from the Modbus registers.
+Server Task Execution:
+
+The server detects the pending task (40005 = PENDING).
+Calls the MissionWorks API to send a start command to the AMR.
+Updates the Modbus register (40005) to RUNNING.
+
+6.2 AMR Start/Stop Conditions
+Start Task (Resume)
+The PLC checks the following conditions before allowing the AMR to start or resume a task:
+
+Battery Level (40006) is above 10%
+Work Status (40007) = 1 (Idle)
+Abnormal Status (40008) = 0 (Normal)
+→ Action: Write 1 to 40001 (Start Task) and update 40005 to RUNNING.
+Pause Task
+Conditions where the AMR must pause:
+
+Battery Level (40006) ≤ 10%
+Abnormal Status (40008) ≠ 0 (Error detected)
+→ Action: Write 2 to 40001 (Pause Task), update 40005 to PAUSED, and trigger a charge or recovery.
+Charging Initiation
+When the battery drops below 10%, the system automatically pauses the task and initiates charging:
+
+Write 3 to 40001 (Charge Command)
+Update 40005 to CHARGING
+When the battery reaches ≥ 30%, the system resumes the last task:
+
+Write 1 to 40001 (Resume Task)
+Update 40005 to RUNNING
+
+7. Sample PLC Code (C) for Modbus Communication
+7.1 Reading and Writing Modbus Registers
+The following C code demonstrates how the PLC interacts with Modbus registers.
+
+----------C#--------------
+#include <stdio.h>
+#include <stdlib.h>
+#include <modbus/modbus.h>
+#include <unistd.h>
+
+#define SERVER_IP "192.168.51.51"
+#define SERVER_PORT 502
+
+int main() {
+    modbus_t *ctx;
+    uint16_t regs[10];
+
+    // Connect to Modbus Server (PLC)
+    ctx = modbus_new_tcp(SERVER_IP, SERVER_PORT);
+    if (modbus_connect(ctx) == -1) {
+        fprintf(stderr, "Connection Failed: %s\n", modbus_strerror(errno));
+        modbus_free(ctx);
+        return -1;
+    }
+
+    while (1) {
+        // Read AMR status registers
+        if (modbus_read_registers(ctx, 5, 4, regs) == -1) {
+            fprintf(stderr, "Failed to read registers: %s\n", modbus_strerror(errno));
+        } else {
+            int battery = regs[1];  // 40006: Battery Level
+            int workStatus = regs[2];  // 40007: Work Status
+            int abnormalStatus = regs[3];  // 40008: Abnormal Status
+
+            printf("Battery: %d%%, Work Status: %d, Abnormal Status: %d\n", battery, workStatus, abnormalStatus);
+
+            // Start Task if conditions are met
+            if (battery > 10 && workStatus == 1 && abnormalStatus == 0) {
+                printf("Starting Task...\n");
+                uint16_t startCommand = 1;
+                modbus_write_register(ctx, 0, startCommand); // 40001 = 1 (Start)
+            }
+
+            // Pause if Battery is Low
+            if (battery <= 10) {
+                printf("Battery Low! Pausing Task...\n");
+                uint16_t pauseCommand = 2;
+                modbus_write_register(ctx, 0, pauseCommand); // 40001 = 2 (Pause)
+            }
+        }
+        sleep(5);  // Check every 5 seconds
+    }
+
+    modbus_close(ctx);
+    modbus_free(ctx);
+    return 0;
+}
+----------C#--------------
+
+8. Summary
+HMI → PLC:
+
+HMI writes task commands (START, PAUSE, CHARGE) to Modbus registers.
+PLC reads task data and updates the task_list database.
+PLC → Server:
+
+Server reads Modbus registers (40001-40008) to determine task execution status.
+If a task is pending (40005 = PENDING), the server triggers the AMR via API.
+PLC → AMR:
+
+AMR status (battery, workStatus, abnormalStatus) is continuously monitored.
+Based on conditions, the task is resumed, paused, or charging is initiated.
